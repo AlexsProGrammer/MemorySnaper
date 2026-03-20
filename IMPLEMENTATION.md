@@ -45,11 +45,11 @@ Here is the comprehensive, strictly formatted `IMPLEMENTATION.md` blueprint to h
 - [ ] **Verification:** Create a mock JSON with 2 entries. Run a test Rust function to parse it. Verify the DB has 2 rows with the correctly extracted `mid` strings.
 
 ### Phase 3: The "Zip Hunter" & Sliding Window Staging
-- [ ] **Step 3.1:** In `src-tauri/src/core/zip_hunter.rs`, implement `find_and_extract_memory(zip_paths, date, mid)`. It must use the `zip` crate to iterate through the provided ZIPs without extracting them entirely.
-- [ ] **Step 3.2:** Inside the loop, check if filenames contain `<date>_<mid>-main` or `<date>_<mid>-overlay`.
-- [ ] **Step 3.3:** If found, extract ONLY those specific files to `.staging/`. 
-- [ ] **Step 3.4:** If the `main` file is NOT found in any ZIP, fallback to `reqwest` to download it via the `Media Download Url` into `.staging/`. If the download fails, update DB status to `FAILED_NETWORK`.
-- [ ] **Verification:** Place a mock ZIP containing `2026-02-20_9a5a...-main.mp4` in the directory. Run the hunter function with the corresponding `mid`. Verify ONLY that file appears in `.staging/`.
+- [x] **Step 3.1:** In `src-tauri/src/core/zip_hunter.rs`, implement `find_and_extract_memory(zip_paths, date, mid)`. It must use the `zip` crate to iterate through the provided ZIPs without extracting them entirely.
+- [x] **Step 3.2:** Inside the loop, check if filenames contain `<date>_<mid>-main` or `<date>_<mid>-overlay`.
+- [x] **Step 3.3:** If found, extract ONLY those specific files to `.staging/`. 
+- [x] **Step 3.4:** If the `main` file is NOT found in any ZIP, fallback to `reqwest` to download it via the `Media Download Url` into `.staging/`. If the download fails, update DB status to `FAILED_NETWORK`.
+- [x] **Verification:** Place a mock ZIP containing `2026-02-20_9a5a...-main.mp4` in the directory. Run the hunter function with the corresponding `mid`. Verify ONLY that file appears in `.staging/`.
 
 ### Phase 4: BLAKE3 Deduplication & FFmpeg Processing
 - [ ] **Step 4.1:** In `src-tauri/src/core/processor.rs`, before running FFmpeg, read the staged `main` file into a `blake3::Hasher`. 
