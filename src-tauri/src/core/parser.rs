@@ -62,6 +62,8 @@ pub struct SnapchatMemoriesExport {
 ///
 /// # Example
 /// ```
+/// use tauri_app_lib::core::parser::extract_mid_from_download_link;
+///
 /// let mid = extract_mid_from_download_link(
 ///     "https://fetchmedia.snapchat.com/...?mid=9a5a9ce7abc&token=...",
 /// );

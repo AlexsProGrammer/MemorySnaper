@@ -28,6 +28,7 @@ tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 zip = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sha2 = "0.10"
+blake3 = "1"
 url = "2"
 sys-locale = "0.3"
 

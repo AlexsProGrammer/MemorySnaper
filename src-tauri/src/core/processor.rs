@@ -2,6 +2,9 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use chrono::{NaiveDate, NaiveDateTime};
+use sqlx::SqlitePool;
+
 use crate::core::media;
 
 #[derive(Debug)]
@@ -9,8 +12,10 @@ pub enum ProcessorError {
     Io(std::io::Error),
     Join(tokio::task::JoinError),
     Media(media::MediaError),
+    Database(sqlx::Error),
     InvalidInput(&'static str),
     FfmpegFailed { status: Option<i32>, stderr: String },
+    Blake3(String),
 }
 
 impl Display for ProcessorError {
@@ -19,10 +24,12 @@ impl Display for ProcessorError {
             Self::Io(error) => write!(f, "processor I/O failed: {error}"),
             Self::Join(error) => write!(f, "processor thread failed: {error}"),
             Self::Media(error) => write!(f, "media operation failed: {error}"),
+            Self::Database(error) => write!(f, "processor DB error: {error}"),
             Self::InvalidInput(reason) => write!(f, "invalid processor input: {reason}"),
             Self::FfmpegFailed { status, stderr } => {
                 write!(f, "ffmpeg exited with status {:?}: {}", status, stderr.trim())
             }
+            Self::Blake3(msg) => write!(f, "blake3 hashing failed: {msg}"),
         }
     }
 }
@@ -47,9 +54,22 @@ impl From<media::MediaError> for ProcessorError {
     }
 }
 
+impl From<sqlx::Error> for ProcessorError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum ProcessMediaResult {
+    Processed(ProcessMediaOutput),
+    Duplicate { content_hash: String },
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessMediaInput {
     pub memory_item_id: i64,
+    pub memory_group_id: Option<i64>,
     pub raw_media_paths: Vec<PathBuf>,
     pub overlay_path: Option<PathBuf>,
     pub date_taken: String,
@@ -57,21 +77,43 @@ pub struct ProcessMediaInput {
     pub export_dir: PathBuf,
     pub thumbnail_dir: PathBuf,
     pub keep_originals: bool,
+    pub database_url: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct ProcessMediaOutput {
     pub final_media_path: PathBuf,
     pub thumbnail_path: PathBuf,
+    pub content_hash: String,
 }
 
-pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaOutput, ProcessorError> {
+pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResult, ProcessorError> {
     if input.raw_media_paths.is_empty() {
         return Err(ProcessorError::InvalidInput("raw_media_paths is empty"));
     }
 
-    tokio::fs::create_dir_all(&input.export_dir).await?;
-    tokio::fs::create_dir_all(&input.thumbnail_dir).await?;
+    let content_hash = compute_blake3_hash(&input.raw_media_paths[0]).await?;
+    let duplicate_row_id = input.memory_group_id.unwrap_or(input.memory_item_id);
+
+    if !input.database_url.is_empty()
+        && check_duplicate_in_db(&content_hash, duplicate_row_id, &input.database_url).await?
+    {
+        cleanup_source_artifacts(
+            &input.raw_media_paths,
+            input.overlay_path.as_deref(),
+            None,
+            input.keep_originals,
+        )
+        .await?;
+
+        eprintln!(
+            "[processor-debug] duplicate detected memory_group_id={:?} memory_item_id={} hash={content_hash}",
+            input.memory_group_id,
+            input.memory_item_id
+        );
+
+        return Ok(ProcessMediaResult::Duplicate { content_hash });
+    }
 
     eprintln!(
         "[processor-debug] process_media start memory_item_id={} raw_count={} overlay_present={} export_dir='{}' keep_originals={}",
@@ -83,9 +125,23 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaOutpu
     );
 
     let extension = media_extension_from_path(&input.raw_media_paths[0]).unwrap_or("bin");
-    let final_media_path = input
-        .export_dir
-        .join(format!("{}.{}", input.memory_item_id, extension));
+    let final_media_path = build_final_media_path(
+        &input.export_dir,
+        &input.date_taken,
+        input.memory_item_id,
+        extension,
+    )?;
+    let thumbnail_path = build_thumbnail_path(
+        &input.thumbnail_dir,
+        input.memory_item_id,
+    );
+
+    if let Some(parent) = final_media_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    if let Some(parent) = thumbnail_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
 
     let mut temp_concat_path: Option<PathBuf> = None;
 
@@ -110,12 +166,7 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaOutpu
         .or_else(|| input.raw_media_paths.first().map(PathBuf::as_path))
         .ok_or(ProcessorError::InvalidInput("missing base media path"))?;
 
-    media::merge_media_with_optional_overlay(
-        base_media_path,
-        input.overlay_path.as_deref(),
-        &final_media_path,
-    )
-    .await?;
+    merge_staged_media(base_media_path, input.overlay_path.as_deref(), &final_media_path).await?;
 
     media::write_metadata_with_ffmpeg(
         &final_media_path,
@@ -123,10 +174,6 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaOutpu
         input.location.as_deref(),
     )
     .await?;
-
-    let thumbnail_path = input
-        .thumbnail_dir
-        .join(format!("{}.webp", input.memory_item_id));
 
     generate_webp_thumbnail(&final_media_path, &thumbnail_path).await?;
 
@@ -137,24 +184,158 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaOutpu
         thumbnail_path.display()
     );
 
-    if !input.keep_originals {
-        for raw_media_path in &input.raw_media_paths {
-            remove_file_if_exists(raw_media_path).await?;
-        }
+    cleanup_source_artifacts(
+        &input.raw_media_paths,
+        input.overlay_path.as_deref(),
+        temp_concat_path.as_deref(),
+        input.keep_originals,
+    )
+    .await?;
 
-        if let Some(overlay_path) = input.overlay_path.as_deref() {
-            remove_file_if_exists(overlay_path).await?;
-        }
-    }
-
-    if let Some(temp_concat_path) = temp_concat_path.as_deref() {
-        remove_file_if_exists(temp_concat_path).await?;
-    }
-
-    Ok(ProcessMediaOutput {
+    Ok(ProcessMediaResult::Processed(ProcessMediaOutput {
         final_media_path,
         thumbnail_path,
+        content_hash,
+    }))
+}
+
+pub async fn check_duplicate_in_db(
+    content_hash: &str,
+    memory_group_id: i64,
+    database_url: &str,
+) -> Result<bool, ProcessorError> {
+    let pool = SqlitePool::connect(database_url).await?;
+
+    let duplicate_id: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM Memories WHERE content_hash = ?1 AND id != ?2 LIMIT 1",
+    )
+    .bind(content_hash)
+    .bind(memory_group_id)
+    .fetch_optional(&pool)
+    .await?;
+
+    if duplicate_id.is_some() {
+        sqlx::query(
+            "UPDATE Memories SET status = 'DUPLICATE', content_hash = ?1 WHERE id = ?2",
+        )
+        .bind(content_hash)
+        .bind(memory_group_id)
+        .execute(&pool)
+        .await?;
+
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+pub async fn compute_blake3_hash(path: &Path) -> Result<String, ProcessorError> {
+    use std::io::Read;
+
+    let path = path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        let mut hasher = blake3::Hasher::new();
+        let file = std::fs::File::open(&path)
+            .map_err(|e| ProcessorError::Blake3(format!("open '{}': {e}", path.display())))?;
+        let mut reader = std::io::BufReader::with_capacity(64 * 1024, file);
+        let mut buf = [0u8; 64 * 1024];
+
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|e| ProcessorError::Blake3(format!("read '{}': {e}", path.display())))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+
+        Ok(hasher.finalize().to_hex().to_string())
     })
+    .await?
+}
+
+fn build_final_media_path(
+    export_root: &Path,
+    date_taken: &str,
+    memory_item_id: i64,
+    extension: &str,
+) -> Result<PathBuf, ProcessorError> {
+    let capture_date = parse_capture_date(date_taken)?;
+    let year = capture_date.format("%Y").to_string();
+    let month_dir = capture_date.format("%m_%B").to_string();
+
+    Ok(export_root
+        .join(year)
+        .join(month_dir)
+        .join(format!("{}.{}", memory_item_id, extension)))
+}
+
+fn build_thumbnail_path(thumbnail_root: &Path, memory_item_id: i64) -> PathBuf {
+    thumbnail_root.join(format!("{}.webp", memory_item_id))
+}
+
+fn parse_capture_date(date_taken: &str) -> Result<NaiveDate, ProcessorError> {
+    if let Ok(date) = NaiveDate::parse_from_str(date_taken, "%Y-%m-%d") {
+        return Ok(date);
+    }
+
+    if let Ok(date_time) = chrono::DateTime::parse_from_rfc3339(date_taken) {
+        return Ok(date_time.date_naive());
+    }
+
+    if let Ok(date_time) = NaiveDateTime::parse_from_str(date_taken, "%Y-%m-%d %H:%M:%S") {
+        return Ok(date_time.date());
+    }
+
+    Err(ProcessorError::InvalidInput("date_taken is not a supported date format"))
+}
+
+async fn merge_staged_media(
+    base_media_path: &Path,
+    overlay_path: Option<&Path>,
+    output_path: &Path,
+) -> Result<(), ProcessorError> {
+    let existing_overlay_path = resolve_existing_overlay_path(overlay_path).await?;
+
+    if let Some(overlay_path) = existing_overlay_path.as_deref() {
+        eprintln!(
+            "[processor-debug] applying overlay base='{}' overlay='{}' output='{}'",
+            base_media_path.display(),
+            overlay_path.display(),
+            output_path.display()
+        );
+    } else {
+        eprintln!(
+            "[processor-debug] no overlay found; copying base='{}' output='{}'",
+            base_media_path.display(),
+            output_path.display()
+        );
+    }
+
+    media::merge_media_with_optional_overlay(
+        base_media_path,
+        existing_overlay_path.as_deref(),
+        output_path,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn resolve_existing_overlay_path(
+    overlay_path: Option<&Path>,
+) -> Result<Option<PathBuf>, ProcessorError> {
+    let Some(overlay_path) = overlay_path else {
+        return Ok(None);
+    };
+
+    if tokio::fs::try_exists(overlay_path).await? {
+        return Ok(Some(overlay_path.to_path_buf()));
+    }
+
+    Ok(None)
 }
 
 async fn concat_video_parts(parts: &[PathBuf], output_path: &Path) -> Result<(), ProcessorError> {
@@ -163,7 +344,8 @@ async fn concat_video_parts(parts: &[PathBuf], output_path: &Path) -> Result<(),
 
     tokio::task::spawn_blocking(move || {
         let list_path = output_path.with_extension("concat.txt");
-        let list_path_for_ffmpeg = std::fs::canonicalize(&list_path).unwrap_or_else(|_| list_path.clone());
+        let list_path_for_ffmpeg =
+            std::fs::canonicalize(&list_path).unwrap_or_else(|_| list_path.clone());
         let mut list_content = String::new();
 
         for part in &parts {
@@ -262,6 +444,60 @@ async fn remove_file_if_exists(path: &Path) -> Result<(), ProcessorError> {
     Ok(())
 }
 
+async fn cleanup_source_artifacts(
+    raw_media_paths: &[PathBuf],
+    overlay_path: Option<&Path>,
+    temp_concat_path: Option<&Path>,
+    keep_originals: bool,
+) -> Result<(), ProcessorError> {
+    for raw_media_path in raw_media_paths {
+        if !keep_originals || is_staging_path(raw_media_path) {
+            remove_file_if_exists(raw_media_path).await?;
+            remove_empty_staging_dirs(raw_media_path).await?;
+        }
+    }
+
+    if let Some(overlay_path) = overlay_path {
+        if !keep_originals || is_staging_path(overlay_path) {
+            remove_file_if_exists(overlay_path).await?;
+            remove_empty_staging_dirs(overlay_path).await?;
+        }
+    }
+
+    if let Some(temp_concat_path) = temp_concat_path {
+        remove_file_if_exists(temp_concat_path).await?;
+        remove_empty_staging_dirs(temp_concat_path).await?;
+    }
+
+    Ok(())
+}
+
+fn is_staging_path(path: &Path) -> bool {
+    path.components().any(|component| component.as_os_str() == ".staging")
+}
+
+async fn remove_empty_staging_dirs(path: &Path) -> Result<(), ProcessorError> {
+    let mut current = path.parent();
+
+    while let Some(dir) = current {
+        if dir.file_name().is_some_and(|name| name == ".staging") {
+            if tokio::fs::try_exists(dir).await? {
+                match tokio::fs::remove_dir(dir).await {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(ProcessorError::Io(error)),
+                }
+            }
+            break;
+        }
+
+        current = dir.parent();
+    }
+
+    Ok(())
+}
+
 fn media_extension_from_path(path: &Path) -> Option<&str> {
     path.extension().and_then(|value| value.to_str())
 }
@@ -271,4 +507,232 @@ fn is_video_extension(extension: &str) -> bool {
         extension.to_ascii_lowercase().as_str(),
         "mp4" | "mov" | "m4v" | "webm"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::{NamedTempFile, tempdir};
+
+    #[tokio::test]
+    async fn blake3_same_content_produces_same_hash() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"snapchat memory test content").unwrap();
+        file.flush().unwrap();
+
+        let hash_a = compute_blake3_hash(file.path()).await.unwrap();
+        let hash_b = compute_blake3_hash(file.path()).await.unwrap();
+
+        assert_eq!(hash_a, hash_b, "same file must yield identical hash");
+    }
+
+    #[tokio::test]
+    async fn blake3_different_content_produces_different_hash() {
+        let mut file_a = NamedTempFile::new().unwrap();
+        file_a.write_all(b"content alpha").unwrap();
+
+        let mut file_b = NamedTempFile::new().unwrap();
+        file_b.write_all(b"content beta").unwrap();
+
+        let hash_a = compute_blake3_hash(file_a.path()).await.unwrap();
+        let hash_b = compute_blake3_hash(file_b.path()).await.unwrap();
+
+        assert_ne!(hash_a, hash_b, "different content must yield different hashes");
+    }
+
+    #[tokio::test]
+    async fn blake3_hash_is_64_hex_chars() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"some media bytes").unwrap();
+
+        let hash = compute_blake3_hash(file.path()).await.unwrap();
+
+        assert_eq!(hash.len(), 64, "BLAKE3 hex output must be 64 characters");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash must contain only hex characters"
+        );
+    }
+
+    #[tokio::test]
+    async fn blake3_missing_file_returns_error() {
+        let result = compute_blake3_hash(Path::new("/nonexistent/path/file.mp4")).await;
+        assert!(result.is_err(), "hashing a missing file must return an error");
+        assert!(matches!(result.unwrap_err(), ProcessorError::Blake3(_)));
+    }
+
+    async fn create_test_db() -> (SqlitePool, String) {
+        let db_file = NamedTempFile::new().unwrap();
+        let db_path = db_file.into_temp_path().keep().unwrap();
+        let database_url = format!("sqlite://{}", db_path.display());
+        let pool = SqlitePool::connect(&database_url).await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS Memories (
+                id INTEGER PRIMARY KEY,
+                content_hash TEXT,
+                status TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        (pool, database_url)
+    }
+
+    #[tokio::test]
+    async fn duplicate_check_returns_true_and_marks_db_when_hash_exists() {
+        let (pool, database_url) = create_test_db().await;
+
+        let hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        sqlx::query("INSERT INTO Memories (id, content_hash, status) VALUES (99, ?1, 'PROCESSED')")
+            .bind(hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO Memories (id, content_hash, status) VALUES (1, NULL, 'PENDING')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let is_duplicate = check_duplicate_in_db(hash, 1, &database_url).await.unwrap();
+        assert!(is_duplicate, "must return true when a matching hash already exists");
+
+        let status: String = sqlx::query_scalar("SELECT status FROM Memories WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "DUPLICATE");
+    }
+
+    #[tokio::test]
+    async fn duplicate_check_returns_false_when_hash_is_new() {
+        let (pool, database_url) = create_test_db().await;
+
+        sqlx::query("INSERT INTO Memories (id, content_hash, status) VALUES (1, NULL, 'PENDING')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let is_duplicate = check_duplicate_in_db(hash, 1, &database_url).await.unwrap();
+        assert!(!is_duplicate, "must return false when hash is unique");
+
+        let status: String = sqlx::query_scalar("SELECT status FROM Memories WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "PENDING");
+    }
+
+    #[tokio::test]
+    async fn resolve_existing_overlay_path_returns_none_for_missing_overlay() {
+        let missing_overlay = Path::new("/tmp/processor-missing-overlay-test.png");
+
+        let resolved = resolve_existing_overlay_path(Some(missing_overlay))
+            .await
+            .unwrap();
+
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_existing_overlay_path_returns_path_for_existing_overlay() {
+        let overlay_file = NamedTempFile::new().unwrap();
+
+        let resolved = resolve_existing_overlay_path(Some(overlay_file.path()))
+            .await
+            .unwrap();
+
+        assert_eq!(resolved.as_deref(), Some(overlay_file.path()));
+    }
+
+    #[tokio::test]
+    async fn merge_staged_media_copies_base_when_overlay_is_missing() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path().join("base.jpg");
+        let missing_overlay_path = temp_dir.path().join("missing-overlay.png");
+        let output_path = temp_dir.path().join("output.jpg");
+
+        std::fs::write(&base_path, b"base-image-bytes").unwrap();
+
+        merge_staged_media(&base_path, Some(&missing_overlay_path), &output_path)
+            .await
+            .unwrap();
+
+        assert!(output_path.exists());
+        assert_eq!(std::fs::read(&output_path).unwrap(), b"base-image-bytes");
+    }
+
+    #[test]
+    fn detects_staging_paths() {
+        assert!(is_staging_path(Path::new("/tmp/export/.staging/42.jpg")));
+        assert!(!is_staging_path(Path::new("/tmp/export/2026/02_February/42.jpg")));
+    }
+
+    #[tokio::test]
+    async fn cleanup_source_artifacts_removes_staging_files_even_when_keep_originals_true() {
+        let temp_dir = tempdir().unwrap();
+        let staging_dir = temp_dir.path().join(".staging");
+        std::fs::create_dir_all(&staging_dir).unwrap();
+
+        let staged_main = staging_dir.join("42.jpg");
+        let staged_overlay = staging_dir.join("42.overlay.png");
+        std::fs::write(&staged_main, b"main").unwrap();
+        std::fs::write(&staged_overlay, b"overlay").unwrap();
+
+        cleanup_source_artifacts(
+            &[staged_main.clone()],
+            Some(&staged_overlay),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert!(!staged_main.exists());
+        assert!(!staged_overlay.exists());
+        assert!(!staging_dir.exists());
+    }
+
+    #[test]
+    fn builds_final_media_path_into_year_and_month_folder() {
+        let export_root = Path::new("/tmp/export-root");
+
+        let final_path = build_final_media_path(export_root, "2026-02-20", 42, "jpg").unwrap();
+
+        assert_eq!(
+            final_path,
+            PathBuf::from("/tmp/export-root/2026/02_February/42.jpg")
+        );
+    }
+
+    #[test]
+    fn builds_final_media_path_from_rfc3339_datetime() {
+        let export_root = Path::new("/tmp/export-root");
+
+        let final_path =
+            build_final_media_path(export_root, "2026-02-20T10:22:03Z", 7, "mp4").unwrap();
+
+        assert_eq!(
+            final_path,
+            PathBuf::from("/tmp/export-root/2026/02_February/7.mp4")
+        );
+    }
+
+    #[test]
+    fn builds_thumbnail_path_in_thumbnail_root() {
+        let thumbnail_root = Path::new("/tmp/export-root/.thumbnails");
+
+        let thumbnail_path = build_thumbnail_path(thumbnail_root, 99);
+
+        assert_eq!(
+            thumbnail_path,
+            PathBuf::from("/tmp/export-root/.thumbnails/99.webp")
+        );
+    }
 }

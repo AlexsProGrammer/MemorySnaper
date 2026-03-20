@@ -590,7 +590,12 @@ mod tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hash TEXT NOT NULL UNIQUE,
                 date TEXT NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                job_id TEXT,
+                mid TEXT,
+                content_hash TEXT,
+                relative_path TEXT,
+                thumbnail_path TEXT
             )
             ",
         )

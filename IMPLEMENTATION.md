@@ -52,11 +52,11 @@ Here is the comprehensive, strictly formatted `IMPLEMENTATION.md` blueprint to h
 - [x] **Verification:** Place a mock ZIP containing `2026-02-20_9a5a...-main.mp4` in the directory. Run the hunter function with the corresponding `mid`. Verify ONLY that file appears in `.staging/`.
 
 ### Phase 4: BLAKE3 Deduplication & FFmpeg Processing
-- [ ] **Step 4.1:** In `src-tauri/src/core/processor.rs`, before running FFmpeg, read the staged `main` file into a `blake3::Hasher`. 
-- [ ] **Step 4.2:** Query the DB for `content_hash`. If a match exists, mark memory as `DUPLICATE`, delete from `.staging/`, and skip.
-- [ ] **Step 4.3:** If unique, check if an `overlay` exists in `.staging/`. If yes, run the FFmpeg burn-in command. If no, just copy the file.
-- [ ] **Step 4.4:** Format the final output path using `chrono`: `Export_Folder/YYYY/MM_MonthName/`. Generate a 300x300 thumbnail into `Export_Folder/.thumbnails/`.
-- [ ] **Step 4.5:** Update DB with `status = PROCESSED`, `relative_path`, and `thumbnail_path`. Clean the `.staging/` folder.
+- [x] **Step 4.1:** In `src-tauri/src/core/processor.rs`, before running FFmpeg, read the staged `main` file into a `blake3::Hasher`. 
+- [x] **Step 4.2:** Query the DB for `content_hash`. If a match exists, mark memory as `DUPLICATE`, delete from `.staging/`, and skip.
+- [x] **Step 4.3:** If unique, check if an `overlay` exists in `.staging/`. If yes, run the FFmpeg burn-in command. If no, just copy the file.
+- [x] **Step 4.4:** Format the final output path using `chrono`: `Export_Folder/YYYY/MM_MonthName/`. Generate a 300x300 thumbnail into `Export_Folder/.thumbnails/`.
+- [x] **Step 4.5:** Update DB with `status = PROCESSED`, `relative_path`, and `thumbnail_path`. Clean the `.staging/` folder.
 - [ ] **Verification:** Stage an image and a transparent PNG overlay. Run the processor. Verify a merged image appears in `2026/02_February/` and a thumbnail in `.thumbnails/`.
 
 ### Phase 5: State Machine Control (Pause/Stop)

@@ -1049,8 +1049,9 @@ async fn process_downloaded_memories(
             overlay_path.is_some()
         );
 
-        if let Err(error) = core::processor::process_media(core::processor::ProcessMediaInput {
+        let process_result = core::processor::process_media(core::processor::ProcessMediaInput {
             memory_item_id: unit.progress_item_id,
+            memory_group_id: unit.memory_group_id,
             raw_media_paths,
             overlay_path,
             date_taken: unit.date_taken.clone(),
@@ -1058,9 +1059,11 @@ async fn process_downloaded_memories(
             export_dir: output_path.to_path_buf(),
             thumbnail_dir: thumbnail_path.clone(),
             keep_originals,
+            database_url: database_url.clone(),
         })
-        .await
-        {
+        .await;
+
+        if let Err(error) = process_result {
             failed_count += 1;
 
             eprintln!(
@@ -1125,6 +1128,75 @@ async fn process_downloaded_memories(
             continue;
         }
 
+        if let Ok(core::processor::ProcessMediaResult::Duplicate { ref content_hash }) = process_result {
+            eprintln!(
+                "[processor-debug] duplicate skipped memory_item_id={} hash={content_hash}",
+                unit.progress_item_id
+            );
+
+            for memory_item_id in &unit.memory_item_ids {
+                sqlx::query(
+                    "
+                    UPDATE MemoryItem
+                    SET status = 'duplicate',
+                        last_error_code = NULL,
+                        last_error_message = NULL
+                    WHERE id = ?1
+                    ",
+                )
+                .bind(memory_item_id)
+                .execute(&pool)
+                .await
+                .map_err(|error| {
+                    format!(
+                        "failed to update duplicate status for memory {}: {error}",
+                        memory_item_id
+                    )
+                })?;
+            }
+
+            window
+                .emit(
+                    PROCESS_PROGRESS_EVENT,
+                    ProcessProgressPayload {
+                        total_files,
+                        completed_files: index + 1,
+                        successful_files: processed_count,
+                        failed_files: failed_count,
+                        memory_item_id: Some(unit.progress_item_id),
+                        status: "duplicate".to_string(),
+                        error_code: None,
+                        error_message: None,
+                    },
+                )
+                .map_err(|emit_error| {
+                    format!("failed to emit processing progress event: {emit_error}")
+                })?;
+
+            continue;
+        }
+
+        let processed_output = match process_result {
+            Ok(core::processor::ProcessMediaResult::Processed(output)) => output,
+            Ok(core::processor::ProcessMediaResult::Duplicate { .. }) => unreachable!(),
+            Err(_) => unreachable!(),
+        };
+
+        let relative_media_path = path_to_relative_string(&processed_output.final_media_path, output_path)
+            .map_err(|error| {
+                format!(
+                    "failed to compute relative media path for memory {}: {error}",
+                    unit.progress_item_id
+                )
+            })?;
+        let relative_thumbnail_path =
+            path_to_relative_string(&processed_output.thumbnail_path, output_path).map_err(|error| {
+                format!(
+                    "failed to compute relative thumbnail path for memory {}: {error}",
+                    unit.progress_item_id
+                )
+            })?;
+
         processed_count += 1;
 
         for memory_item_id in &unit.memory_item_ids {
@@ -1149,13 +1221,25 @@ async fn process_downloaded_memories(
         }
 
         if let Some(memory_group_id) = unit.memory_group_id {
-            sqlx::query("UPDATE Memories SET status = 'processed' WHERE id = ?1")
+            sqlx::query(
+                "
+                UPDATE Memories
+                SET status = 'PROCESSED',
+                    content_hash = ?1,
+                    relative_path = ?2,
+                    thumbnail_path = ?3
+                WHERE id = ?4
+                ",
+            )
+                .bind(&processed_output.content_hash)
+                .bind(&relative_media_path)
+                .bind(&relative_thumbnail_path)
                 .bind(memory_group_id)
                 .execute(&pool)
                 .await
                 .map_err(|error| {
                     format!(
-                        "failed to update processed status for memory group {}: {error}",
+                        "failed to update processed metadata for memory group {}: {error}",
                         memory_group_id
                     )
                 })?;
@@ -1250,6 +1334,18 @@ fn find_overlay_file_for_memory_item(
     Ok(None)
 }
 
+fn path_to_relative_string(path: &std::path::Path, root: &std::path::Path) -> Result<String, String> {
+    let relative = path.strip_prefix(root).map_err(|error| {
+        format!(
+            "path '{}' is not under root '{}': {error}",
+            path.display(),
+            root.display()
+        )
+    })?;
+
+    Ok(relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+}
+
 fn extract_extension_from_url(url: &str, fallback: &str) -> String {
     url.rsplit_once('.')
         .map(|(_, ext)| ext)
@@ -1308,7 +1404,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_failed_memory_status;
+    use std::path::Path;
+
+    use super::{path_to_relative_string, resolve_failed_memory_status};
     use crate::core::downloader::DownloadErrorCode;
 
     #[test]
@@ -1345,5 +1443,25 @@ mod tests {
             resolve_failed_memory_status(&DownloadErrorCode::HttpError, true, 3),
             "failed"
         );
+    }
+
+    #[test]
+    fn converts_output_paths_to_forward_slash_relative_strings() {
+        let root = Path::new("/tmp/export");
+        let path = Path::new("/tmp/export/2026/02_February/42.jpg");
+
+        let relative = path_to_relative_string(path, root).unwrap();
+
+        assert_eq!(relative, "2026/02_February/42.jpg");
+    }
+
+    #[test]
+    fn rejects_paths_outside_output_root() {
+        let root = Path::new("/tmp/export");
+        let path = Path::new("/tmp/other/42.jpg");
+
+        let error = path_to_relative_string(path, root).unwrap_err();
+
+        assert!(error.contains("is not under root"));
     }
 }
