@@ -303,6 +303,21 @@ export function MediaViewerModal({
     }));
   };
 
+  const toggleSound = () => {
+    const video = videoRef.current;
+    if (!video) {
+      setIsSoundEnabled((previous) => !previous);
+      return;
+    }
+
+    const nextHasSound = video.muted || video.volume <= 0;
+    if (nextHasSound && video.volume <= 0) {
+      video.volume = 1;
+    }
+    video.muted = !nextHasSound;
+    setIsSoundEnabled(nextHasSound);
+  };
+
   const exitFullscreen = async () => {
     if (!document.fullscreenElement) {
       setIsFullscreen(false);
@@ -357,20 +372,7 @@ export function MediaViewerModal({
                 variant="outline"
                 size="icon"
                 className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-                onClick={() => {
-                  const video = videoRef.current;
-                  if (!video) {
-                    setIsSoundEnabled((previous) => !previous);
-                    return;
-                  }
-
-                  const nextHasSound = video.muted || video.volume <= 0;
-                  if (nextHasSound && video.volume <= 0) {
-                    video.volume = 1;
-                  }
-                  video.muted = !nextHasSound;
-                  setIsSoundEnabled(nextHasSound);
-                }}
+                onClick={toggleSound}
                 aria-label={
                   isSoundEnabled
                     ? t("viewer.modal.soundDisable")
@@ -459,82 +461,104 @@ export function MediaViewerModal({
               isFullscreen ? "bg-black" : "bg-transparent"
             }`}
           >
+            {isFullscreen ? (
+              <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+                {item.mediaKind === "video" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                    onClick={toggleSound}
+                    aria-label={
+                      isSoundEnabled
+                        ? t("viewer.modal.soundDisable")
+                        : t("viewer.modal.soundEnable")
+                    }
+                  >
+                    {isSoundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                  </Button>
+                ) : null}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  onClick={rotateCurrentLeft}
+                  aria-label={t("viewer.modal.rotateLeft")}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  onClick={rotateCurrentRight}
+                  aria-label={t("viewer.modal.rotateRight")}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  onClick={() => {
+                    void exitFullscreen();
+                  }}
+                  aria-label={t("viewer.modal.close")}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
+
             {item.mediaKind === "video" ? (
-              <>
-                {isFullscreen ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="absolute right-4 top-4 z-20 h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
-                    onClick={() => {
-                      void exitFullscreen();
-                    }}
-                    aria-label={t("viewer.modal.close")}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3">
+                {isVideoLoading ? (
+                  <p className="text-xs text-white/85">{t("viewer.modal.videoLoading")}</p>
                 ) : null}
 
-                <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-                  {isVideoLoading ? (
-                    <p className="text-xs text-white/85">{t("viewer.modal.videoLoading")}</p>
-                  ) : null}
-
-                  <video
-                    ref={videoRef}
-                    key={videoObjectUrl ?? item.mediaSrc}
-                    className="max-h-full max-w-full rounded-lg object-contain"
-                    style={{ transform: `rotate(${currentRotation}deg)` }}
-                    controls
-                    autoPlay
-                    muted={!isSoundEnabled}
-                    playsInline
-                    preload="metadata"
-                    onVolumeChange={(event) => {
-                      const target = event.currentTarget;
-                      const hasSound = !target.muted && target.volume > 0;
-                      setIsSoundEnabled(hasSound);
-                    }}
-                    onError={() => {
-                      setVideoLoadError(true);
-                      setIsVideoLoading(false);
-                    }}
-                  >
-                    <source src={videoObjectUrl ?? item.mediaSrc} type={videoMimeType} />
-                  </video>
-
-                  {videoLoadError ? (
-                    <p className="max-w-3xl text-center text-xs text-white/85">
-                      {t("viewer.modal.videoUnsupported")}
-                    </p>
-                  ) : null}
-                </div>
-              </>
-            ) : (
-              <>
-                {isFullscreen ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="absolute right-4 top-4 z-20 h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
-                    onClick={() => {
-                      void exitFullscreen();
-                    }}
-                    aria-label={t("viewer.modal.close")}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                ) : null}
-
-                <img
-                  src={item.mediaSrc}
-                  alt={t("viewer.modal.imageAlt", { id: item.id })}
+                <video
+                  ref={videoRef}
+                  key={videoObjectUrl ?? item.mediaSrc}
                   className="max-h-full max-w-full rounded-lg object-contain"
                   style={{ transform: `rotate(${currentRotation}deg)` }}
-                />
-              </>
+                  controls
+                  autoPlay
+                  muted={!isSoundEnabled}
+                  playsInline
+                  preload="metadata"
+                  onVolumeChange={(event) => {
+                    const target = event.currentTarget;
+                    const hasSound = !target.muted && target.volume > 0;
+                    setIsSoundEnabled(hasSound);
+                  }}
+                  onError={() => {
+                    setVideoLoadError(true);
+                    setIsVideoLoading(false);
+                  }}
+                >
+                  <source src={videoObjectUrl ?? item.mediaSrc} type={videoMimeType} />
+                </video>
+
+                {videoLoadError ? (
+                  <p className="max-w-3xl text-center text-xs text-white/85">
+                    {t("viewer.modal.videoUnsupported")}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <img
+                src={item.mediaSrc}
+                alt={t("viewer.modal.imageAlt", { id: item.id })}
+                className="max-h-full max-w-full rounded-lg object-contain"
+                style={{ transform: `rotate(${currentRotation}deg)` }}
+              />
             )}
           </div>
 
