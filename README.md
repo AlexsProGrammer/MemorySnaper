@@ -28,6 +28,22 @@ MemorySnaper is a privacy-first desktop application built with Tauri, React, and
 - [Rust](https://rustup.rs/) (stable toolchain, 1.77+)
 - [pnpm](https://pnpm.io/) (recommended) or npm
 
+#### Linux video playback prerequisites (system codecs)
+
+MemorySnaper relies on your system WebKit/GStreamer stack for in-app MP4 playback (no bundled proprietary codec packs).
+
+Install the common GStreamer runtime plugin sets:
+
+```bash
+sudo apt install -y \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly
+```
+
+After installing codecs, restart the app.
+
 ### Install & Run
 
 ```bash

@@ -106,12 +106,36 @@ pub async fn merge_media_with_optional_overlay(
                 Ok(())
             }
             None => {
-                if paths_point_to_same_target(&base_media_path, &output_path) {
-                    return Ok(());
-                }
+                    let media_kind = media_kind_from_path(&base_media_path)
+                        .ok_or_else(|| MediaError::UnsupportedMediaType(base_media_path.clone()))?;
 
-                std::fs::copy(&base_media_path, &output_path)?;
-                Ok(())
+                    match media_kind {
+                        MediaKind::Image => {
+                            if paths_point_to_same_target(&base_media_path, &output_path) {
+                                return Ok(());
+                            }
+
+                            std::fs::copy(&base_media_path, &output_path)?;
+                            Ok(())
+                        }
+                        MediaKind::Video => {
+                            let writes_in_place = paths_point_to_same_target(&base_media_path, &output_path);
+                            let ffmpeg_output_path = if writes_in_place {
+                                temporary_output_path_with_suffix(&output_path, "normalize.tmp")?
+                            } else {
+                                output_path.clone()
+                            };
+
+                            let args = build_ffmpeg_video_normalize_args(&base_media_path, &ffmpeg_output_path);
+                            run_ffmpeg(args)?;
+
+                            if writes_in_place {
+                                std::fs::rename(&ffmpeg_output_path, &output_path)?;
+                            }
+
+                            Ok(())
+                        }
+                    }
             }
         }
     })
@@ -234,25 +258,67 @@ fn build_ffmpeg_overlay_args(
             args.push("1".to_string());
         }
         MediaKind::Video => {
-            // Scale the overlay to match the base video dimensions before compositing,
-            // so the overlay fills the full frame regardless of the PNG's native size.
             args.push("-filter_complex".to_string());
-            args.push("[1:v][0:v]scale2ref[ov][base];[base][ov]overlay=0:0:format=auto".to_string());
+            args.push(
+                "[1:v][0:v]scale2ref[ov][base];[base][ov]overlay=0:0:format=auto,format=yuv420p"
+                    .to_string(),
+            );
+            args.push("-map".to_string());
+            args.push("0:v".to_string());
             args.push("-map".to_string());
             args.push("0:a?".to_string());
             args.push("-c:a".to_string());
-            args.push("copy".to_string());
+            args.push("aac".to_string());
+            args.push("-b:a".to_string());
+            args.push("128k".to_string());
             args.push("-c:v".to_string());
             args.push("libx264".to_string());
             args.push("-crf".to_string());
             args.push("18".to_string());
             args.push("-preset".to_string());
             args.push("veryfast".to_string());
+            args.push("-profile:v".to_string());
+            args.push("high".to_string());
+            args.push("-pix_fmt".to_string());
+            args.push("yuv420p".to_string());
+            args.push("-movflags".to_string());
+            args.push("+faststart".to_string());
         }
     }
 
     args.push(output_path.to_string_lossy().to_string());
     args
+}
+
+fn build_ffmpeg_video_normalize_args(
+    base_media_path: &Path,
+    output_path: &Path,
+) -> Vec<String> {
+    vec![
+        "-y".to_string(),
+        "-i".to_string(),
+        base_media_path.to_string_lossy().to_string(),
+        "-map".to_string(),
+        "0:v".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-dn".to_string(),
+        "-c:v".to_string(),
+        "libx264".to_string(),
+        "-preset".to_string(),
+        "veryfast".to_string(),
+        "-crf".to_string(),
+        "18".to_string(),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        "aac".to_string(),
+        "-b:a".to_string(),
+        "128k".to_string(),
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        output_path.to_string_lossy().to_string(),
+    ]
 }
 
 fn build_ffmpeg_metadata_args(

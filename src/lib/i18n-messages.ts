@@ -99,6 +99,9 @@ const enMessages = {
   "viewer.modal.next": "Next media",
   "viewer.modal.counter": "{current} / {total}",
   "viewer.modal.imageAlt": "Media {id}",
+  "viewer.modal.videoLoading": "Loading video...",
+  "viewer.modal.videoUnsupported":
+    "Video playback failed in the embedded viewer. On Linux, install system GStreamer codecs (for example: gstreamer1.0-libav, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly), then restart the app.",
 } as const;
 
 export type TranslationKey = keyof typeof enMessages;
@@ -208,6 +211,9 @@ const deMessages: Record<TranslationKey, string> = {
   "viewer.modal.next": "Nächstes Medium",
   "viewer.modal.counter": "{current} / {total}",
   "viewer.modal.imageAlt": "Medium {id}",
+  "viewer.modal.videoLoading": "Video wird geladen...",
+  "viewer.modal.videoUnsupported":
+    "Die Videowiedergabe in der eingebetteten Anzeige ist fehlgeschlagen. Unter Linux bitte die systemweiten GStreamer-Codecs installieren (z. B. gstreamer1.0-libav, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly) und die App neu starten.",
 };
 
 type TranslationDictionary = Record<TranslationKey, string>;
