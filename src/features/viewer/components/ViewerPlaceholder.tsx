@@ -109,6 +109,10 @@ export function ViewerPlaceholder() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        if (document.fullscreenElement) {
+          void document.exitFullscreen();
+          return;
+        }
         closeModal();
         return;
       }

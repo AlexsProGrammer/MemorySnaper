@@ -1,5 +1,15 @@
-import { X, ChevronLeft, ChevronRight, RotateCcw, RotateCw, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  X,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -33,12 +43,34 @@ export function MediaViewerModal({
   const [videoObjectUrl, setVideoObjectUrl] = useState<string | null>(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [rotationByItem, setRotationByItem] = useState<Record<string, number>>({});
+  const mediaContainerRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const syncFullscreenState = () => {
+    const webkitDocument = document as Document & {
+      webkitFullscreenElement?: Element | null;
+    };
+    const fullscreenElement =
+      document.fullscreenElement ?? webkitDocument.webkitFullscreenElement ?? null;
+
+    if (!fullscreenElement) {
+      setIsFullscreen(false);
+      return;
+    }
+
+    const mediaContainer = mediaContainerRef.current;
+    const videoElement = videoRef.current;
+
+    setIsFullscreen(
+      (mediaContainer !== null && fullscreenElement === mediaContainer) ||
+        (videoElement !== null && fullscreenElement === videoElement),
+    );
+  };
 
   const item =
-    currentIndex >= 0 && currentIndex < items.length
-      ? items[currentIndex]
-      : null;
+    currentIndex >= 0 && currentIndex < items.length ? items[currentIndex] : null;
 
   useEffect(() => {
     setVideoLoadError(false);
@@ -47,7 +79,55 @@ export function MediaViewerModal({
   useEffect(() => {
     if (!open) {
       setIsSoundEnabled(false);
+      setIsFullscreen(false);
+      return;
     }
+
+    syncFullscreenState();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    syncFullscreenState();
+  }, [open, item?.id]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      syncFullscreenState();
+    };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", onFullscreenChange as EventListener);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", onFullscreenChange as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      window.setTimeout(() => {
+        syncFullscreenState();
+      }, 0);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [open]);
 
   const videoMimeType = useMemo(() => {
@@ -169,6 +249,7 @@ export function MediaViewerModal({
   if (!open || items.length === 0 || !item) {
     return null;
   }
+
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === items.length - 1;
   const currentRotation = rotationByItem[item.id] ?? 0;
@@ -187,8 +268,44 @@ export function MediaViewerModal({
     }));
   };
 
+  const exitFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      setIsFullscreen(false);
+      return;
+    }
+
+    try {
+      await document.exitFullscreen();
+    } catch (error) {
+      console.error("[viewer] Failed to exit fullscreen", { error });
+    } finally {
+      setIsFullscreen(false);
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) {
+      await exitFullscreen();
+      return;
+    }
+
+    const fullscreenTarget = item.mediaKind === "video" ? videoRef.current : mediaContainerRef.current;
+    try {
+      await fullscreenTarget?.requestFullscreen();
+      setIsFullscreen(true);
+    } catch (error) {
+      console.error("[viewer] Failed to enter fullscreen", { error });
+      setIsFullscreen(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t("viewer.modal.title")}>
+    <div
+      className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("viewer.modal.title")}
+    >
       <div className="flex h-full w-full flex-col">
         <header className="flex items-center justify-between px-4 py-3">
           <p className="text-sm text-white/90">
@@ -197,6 +314,7 @@ export function MediaViewerModal({
               total: items.length,
             })}
           </p>
+
           <div className="flex items-center gap-2">
             {item.mediaKind === "video" ? (
               <Button
@@ -211,11 +329,7 @@ export function MediaViewerModal({
                     : t("viewer.modal.soundEnable")
                 }
               >
-                {isSoundEnabled ? (
-                  <Volume2 className="h-4 w-4" />
-                ) : (
-                  <VolumeX className="h-4 w-4" />
-                )}
+                {isSoundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
               </Button>
             ) : null}
 
@@ -246,7 +360,31 @@ export function MediaViewerModal({
               variant="outline"
               size="icon"
               className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-              onClick={onClose}
+              onClick={() => {
+                void toggleFullscreen();
+              }}
+              aria-label={
+                isFullscreen
+                  ? t("viewer.modal.exitFullscreen")
+                  : t("viewer.modal.enterFullscreen")
+              }
+            >
+              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  void exitFullscreen();
+                  return;
+                }
+
+                onClose();
+              }}
               aria-label={t("viewer.modal.close")}
             >
               <X className="h-4 w-4" />
@@ -267,7 +405,12 @@ export function MediaViewerModal({
             <ChevronLeft className="h-5 w-5" />
           </Button>
 
-          <div className="flex h-full w-full items-center justify-center">
+          <div
+            ref={mediaContainerRef}
+            className={`relative flex h-full w-full items-center justify-center ${
+              isFullscreen ? "bg-black" : "bg-transparent"
+            }`}
+          >
             {item.mediaKind === "video" ? (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3">
                 {isVideoLoading ? (
@@ -275,6 +418,7 @@ export function MediaViewerModal({
                 ) : null}
 
                 <video
+                  ref={videoRef}
                   key={videoObjectUrl ?? item.mediaSrc}
                   className="max-h-full max-w-full rounded-lg object-contain"
                   style={{ transform: `rotate(${currentRotation}deg)` }}
@@ -303,12 +447,29 @@ export function MediaViewerModal({
                 ) : null}
               </div>
             ) : (
-              <img
-                src={item.mediaSrc}
-                alt={t("viewer.modal.imageAlt", { id: item.id })}
-                className="max-h-full max-w-full rounded-lg object-contain"
-                style={{ transform: `rotate(${currentRotation}deg)` }}
-              />
+              <>
+                {isFullscreen ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="absolute right-4 top-4 z-20 h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                    onClick={() => {
+                      void exitFullscreen();
+                    }}
+                    aria-label={t("viewer.modal.close")}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                ) : null}
+
+                <img
+                  src={item.mediaSrc}
+                  alt={t("viewer.modal.imageAlt", { id: item.id })}
+                  className="max-h-full max-w-full rounded-lg object-contain"
+                  style={{ transform: `rotate(${currentRotation}deg)` }}
+                />
+              </>
             )}
           </div>
 
