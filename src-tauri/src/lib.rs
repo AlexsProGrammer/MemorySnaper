@@ -1401,7 +1401,12 @@ async fn get_viewer_items(
                location
         FROM MemoryItem
         WHERE status = 'processed'
-        ORDER BY id DESC
+        ORDER BY CASE
+                     WHEN date_time IS NOT NULL AND TRIM(date_time) <> '' THEN datetime(date_time)
+                     WHEN date IS NOT NULL AND TRIM(date) <> '' THEN datetime(date)
+                     ELSE NULL
+                 END DESC,
+                 id DESC
         LIMIT ?1 OFFSET ?2
         ",
     )

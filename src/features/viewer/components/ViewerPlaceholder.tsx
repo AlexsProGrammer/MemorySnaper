@@ -10,8 +10,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Grid } from "@/features/viewer/components/Grid";
+import {
+  GRID_COLUMNS,
+  Grid,
+  type GridStickyHeader,
+  type GridTimelineRow,
+} from "@/features/viewer/components/Grid";
 import { MediaViewerModal } from "@/features/viewer/components/MediaViewerModal";
+import {
+  formatViewerMonthLabel,
+  formatViewerYearLabel,
+  getViewerYearMonth,
+} from "@/features/viewer/viewer-dates";
 import { useI18n } from "@/lib/i18n";
 import {
   createViewerExportZip,
@@ -31,8 +41,18 @@ type GridItem = {
   rawLocation?: string;
 };
 
+type TimelineThumbnailItem = {
+  id: string;
+  src: string;
+  dateTaken: string;
+  mediaKind: ViewerMediaKind;
+  location?: string;
+  rawLocation?: string;
+  mediaIndex: number;
+};
+
 export function ViewerPlaceholder() {
-  const { t } = useI18n();
+  const { t, resolvedLocale } = useI18n();
   const [items, setItems] = useState<GridItem[]>([]);
   const [status, setStatus] = useState(t("viewer.status.loading"));
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -209,18 +229,121 @@ export function ViewerPlaceholder() {
     };
   }, [isModalOpen, items.length, selectedIndex]);
 
-  const gridItems = useMemo(
-    () =>
-      items.map((item) => ({
+  const gridRows = useMemo<GridTimelineRow[]>(() => {
+    const timelineRows: GridTimelineRow[] = [];
+    const unknownItems: TimelineThumbnailItem[] = [];
+    let pendingRowItems: TimelineThumbnailItem[] = [];
+    let pendingStickyHeader: GridStickyHeader | null = null;
+    let mediaRowCount = 0;
+    let currentYearLabel: string | null = null;
+    let currentMonthKey: string | null = null;
+
+    const flushPendingRow = () => {
+      if (pendingRowItems.length === 0 || !pendingStickyHeader) {
+        return;
+      }
+
+      timelineRows.push({
+        kind: "media",
+        id: `media-row-${mediaRowCount}`,
+        items: pendingRowItems,
+        stickyHeader: pendingStickyHeader,
+      });
+      mediaRowCount += 1;
+      pendingRowItems = [];
+    };
+
+    for (const [mediaIndex, item] of items.entries()) {
+      const timelineItem: TimelineThumbnailItem = {
         id: item.id,
         src: item.thumbnailSrc,
         dateTaken: item.dateTaken,
         mediaKind: item.mediaKind,
         location: item.location,
         rawLocation: item.rawLocation,
-      })),
-    [items],
-  );
+        mediaIndex,
+      };
+
+      const yearMonth = getViewerYearMonth(item.dateTaken);
+      if (!yearMonth) {
+        unknownItems.push(timelineItem);
+        continue;
+      }
+
+      const yearLabel = formatViewerYearLabel(yearMonth);
+      if (currentYearLabel !== yearLabel) {
+        flushPendingRow();
+        currentYearLabel = yearLabel;
+        currentMonthKey = null;
+
+        timelineRows.push({
+          kind: "year",
+          id: `year-${yearLabel}`,
+          label: yearLabel,
+          stickyHeader: {
+            variant: "dated",
+            yearLabel,
+            monthLabel: null,
+          },
+        });
+      }
+
+      const monthKey = `${yearLabel}-${String(yearMonth.month).padStart(2, "0")}`;
+      const monthLabel = formatViewerMonthLabel(yearMonth, resolvedLocale);
+      const stickyHeader: GridStickyHeader = {
+        variant: "dated",
+        yearLabel,
+        monthLabel,
+      };
+
+      if (currentMonthKey !== monthKey) {
+        flushPendingRow();
+        currentMonthKey = monthKey;
+
+        timelineRows.push({
+          kind: "month",
+          id: `month-${monthKey}`,
+          label: monthLabel,
+          stickyHeader,
+        });
+      }
+
+      pendingStickyHeader = stickyHeader;
+      pendingRowItems.push(timelineItem);
+
+      if (pendingRowItems.length === GRID_COLUMNS) {
+        flushPendingRow();
+      }
+    }
+
+    flushPendingRow();
+
+    if (unknownItems.length > 0) {
+      const unknownStickyHeader: GridStickyHeader = {
+        variant: "unknown",
+        yearLabel: t("viewer.timeline.unknown"),
+        monthLabel: null,
+      };
+
+      timelineRows.push({
+        kind: "unknown",
+        id: "unknown-date",
+        label: t("viewer.timeline.unknown"),
+        stickyHeader: unknownStickyHeader,
+      });
+
+      for (let index = 0; index < unknownItems.length; index += GRID_COLUMNS) {
+        timelineRows.push({
+          kind: "media",
+          id: `unknown-media-row-${index}`,
+          items: unknownItems.slice(index, index + GRID_COLUMNS),
+          stickyHeader: unknownStickyHeader,
+        });
+      }
+    }
+
+    return timelineRows;
+  }, [items, resolvedLocale, t]);
 
   const currentIndex = selectedIndex ?? -1;
   const modalItems = useMemo(
@@ -269,7 +392,7 @@ export function ViewerPlaceholder() {
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">{status}</p>
-        <Grid items={gridItems} onItemSelect={openModalAt} />
+        <Grid rows={gridRows} onItemSelect={openModalAt} />
       </CardContent>
 
       <MediaViewerModal

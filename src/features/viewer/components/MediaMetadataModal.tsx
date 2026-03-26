@@ -2,6 +2,10 @@ import { X } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  formatViewerMetadataDate,
+  formatViewerMetadataTime,
+} from "@/features/viewer/viewer-dates";
 import { useI18n } from "@/lib/i18n";
 import type { ViewerMediaKind } from "@/lib/memories-api";
 
@@ -46,24 +50,8 @@ export function MediaMetadataModal({ open, onClose, item }: MediaMetadataModalPr
     return null;
   }
 
-  const date = new Date(item.dateTaken);
-  const isValidDate = !isNaN(date.getTime());
-
-  const formattedDate = isValidDate
-    ? new Intl.DateTimeFormat(resolvedLocale, {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }).format(date)
-    : item.dateTaken;
-
-  const formattedTime = isValidDate
-    ? new Intl.DateTimeFormat(resolvedLocale, {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(date)
-    : "—";
+  const formattedDate = formatViewerMetadataDate(item.dateTaken, resolvedLocale);
+  const formattedTime = formatViewerMetadataTime(item.dateTaken, resolvedLocale);
 
   const typeLabel =
     item.mediaKind === "video"
