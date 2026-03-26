@@ -97,14 +97,15 @@ export function MediaViewerModal({
 
     const settings = readAppSettings();
     setVideoAutoplayEnabled(settings.videoAutoplay);
-    setIsSoundEnabled(true);
+    const soundEnabledByDefault = !settings.videoMutedByDefault;
+    setIsSoundEnabled(soundEnabledByDefault);
 
     const video = videoRef.current;
     if (video) {
       if (video.volume <= 0) {
         video.volume = 1;
       }
-      video.muted = false;
+      video.muted = !soundEnabledByDefault;
     }
   }, [open, item?.id, item?.mediaKind]);
 
@@ -663,7 +664,11 @@ export function MediaViewerModal({
                   <source src={videoObjectUrl ?? item.mediaSrc} type={videoMimeType} />
                   <source src={videoObjectUrl ?? item.mediaSrc} />
                 </video>
-                
+
+                {videoLoadError ? (
+                  <p className="text-xs text-white/75">{t("viewer.modal.videoUnsupported")}</p>
+                ) : null}
+
               </div>
             ) : (
               <img
