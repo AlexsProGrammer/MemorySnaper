@@ -47,6 +47,12 @@ const enMessages = {
   "settings.form.concurrentDownloads": "Concurrent Downloads",
   "settings.form.warning":
     "Warning: Values above 100 RPM or 5 concurrent downloads may trigger throttling.",
+  "settings.form.section.interface": "Interface",
+  "settings.form.section.processing": "Processing",
+  "settings.form.section.mediaOutput": "Media Output",
+  "settings.form.section.viewerPlayback": "Viewer Playback",
+  "settings.form.section.backupExport": "Backup & Export",
+  "settings.form.section.dataReset": "Data Reset",
   "settings.form.reset.button": "Reset all app data",
   "settings.form.reset.inProgress": "Resetting data...",
   "settings.form.reset.description":
@@ -239,6 +245,12 @@ const deMessages: Record<TranslationKey, string> = {
   "settings.form.concurrentDownloads": "Gleichzeitige Downloads",
   "settings.form.warning":
     "Warnung: Werte über 100 RPM oder 5 gleichzeitigen Downloads können Drosselung auslösen.",
+  "settings.form.section.interface": "Oberfläche",
+  "settings.form.section.processing": "Verarbeitung",
+  "settings.form.section.mediaOutput": "Medienausgabe",
+  "settings.form.section.viewerPlayback": "Viewer-Wiedergabe",
+  "settings.form.section.backupExport": "Backup & Export",
+  "settings.form.section.dataReset": "Daten zurücksetzen",
   "settings.form.reset.button": "Alle App-Daten zurücksetzen",
   "settings.form.reset.inProgress": "Daten werden zurückgesetzt...",
   "settings.form.reset.description":

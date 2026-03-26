@@ -3,6 +3,7 @@ import { useTheme } from "next-themes";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   clearPersistedAppClientState,
   parseImageOutputFormatPreference,
@@ -339,293 +340,327 @@ export function SettingsForm() {
 
   return (
     <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
-      <div className="space-y-2">
-        <p className="text-sm font-medium">{t("settings.form.appearance")}</p>
-        <div className="flex gap-2">
-          {(["light", "system", "dark"] as ThemeOption[]).map((option) => (
-            <Button
-              key={option}
-              type="button"
-              variant={theme === option ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setTheme(option)}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.interface")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t("settings.form.appearance")}</p>
+            <div className="flex gap-2">
+              {(["light", "system", "dark"] as ThemeOption[]).map((option) => (
+                <Button
+                  key={option}
+                  type="button"
+                  variant={theme === option ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setTheme(option)}
+                >
+                  {option === "light"
+                    ? t("settings.form.theme.light")
+                    : option === "dark"
+                      ? t("settings.form.theme.dark")
+                      : t("settings.form.theme.system")}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="language-preference" className="text-sm font-medium">
+              {t("settings.form.language")}
+            </label>
+            <select
+              id="language-preference"
+              value={languagePreference}
+              onChange={onLanguagePreferenceChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              {option === "light"
-                ? t("settings.form.theme.light")
-                : option === "dark"
-                  ? t("settings.form.theme.dark")
-                  : t("settings.form.theme.system")}
-            </Button>
-          ))}
-        </div>
-      </div>
+              {languageOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "system"
+                    ? t("settings.form.language.system")
+                    : option === "de"
+                      ? t("settings.form.language.de")
+                      : t("settings.form.language.en")}
+                </option>
+              ))}
+            </select>
+            {languagePreference === "system" ? (
+              <p className="text-xs text-muted-foreground">
+                {t("settings.form.language.detected", { locale: resolvedLocale.toUpperCase() })}
+              </p>
+            ) : null}
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="language-preference" className="text-sm font-medium">
-          {t("settings.form.language")}
-        </label>
-        <select
-          id="language-preference"
-          value={languagePreference}
-          onChange={onLanguagePreferenceChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {languageOptions.map((option) => (
-            <option key={option} value={option}>
-              {option === "system"
-                ? t("settings.form.language.system")
-                : option === "de"
-                  ? t("settings.form.language.de")
-                  : t("settings.form.language.en")}
-            </option>
-          ))}
-        </select>
-        {languagePreference === "system" ? (
-          <p className="text-xs text-muted-foreground">
-            {t("settings.form.language.detected", { locale: resolvedLocale.toUpperCase() })}
-          </p>
-        ) : null}
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="startup-page-preference" className="text-sm font-medium">
+              {t("settings.form.startupPage")}
+            </label>
+            <select
+              id="startup-page-preference"
+              value={startupPagePreference}
+              onChange={onStartupPagePreferenceChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {startupPageOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "system"
+                    ? t("settings.form.startupPage.system")
+                    : option === "downloader"
+                      ? t("settings.form.startupPage.downloader")
+                      : t("settings.form.startupPage.viewer")}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="space-y-2">
-        <label htmlFor="startup-page-preference" className="text-sm font-medium">
-          {t("settings.form.startupPage")}
-        </label>
-        <select
-          id="startup-page-preference"
-          value={startupPagePreference}
-          onChange={onStartupPagePreferenceChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {startupPageOptions.map((option) => (
-            <option key={option} value={option}>
-              {option === "system"
-                ? t("settings.form.startupPage.system")
-                : option === "downloader"
-                  ? t("settings.form.startupPage.downloader")
-                  : t("settings.form.startupPage.viewer")}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.processing")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="requests-per-minute" className="text-sm font-medium">
+              {t("settings.form.requestsPerMinute")}
+            </label>
+            <input
+              id="requests-per-minute"
+              type="number"
+              min={0}
+              step={1}
+              value={requestsPerMinute}
+              onChange={onRequestsPerMinuteChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="requests-per-minute" className="text-sm font-medium">
-          {t("settings.form.requestsPerMinute")}
-        </label>
-        <input
-          id="requests-per-minute"
-          type="number"
-          min={0}
-          step={1}
-          value={requestsPerMinute}
-          onChange={onRequestsPerMinuteChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        />
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="concurrent-downloads" className="text-sm font-medium">
+              {t("settings.form.concurrentDownloads")}
+            </label>
+            <input
+              id="concurrent-downloads"
+              type="number"
+              min={0}
+              step={1}
+              value={concurrentDownloads}
+              onChange={onConcurrentDownloadsChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="thumbnail-quality" className="text-sm font-medium">
-          {t("settings.form.thumbnailQuality")}
-        </label>
-        <select
-          id="thumbnail-quality"
-          value={thumbnailQuality}
-          onChange={onThumbnailQualityChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {thumbnailQualityOptions.map((option) => (
-            <option key={option} value={option}>
-              {resolveThumbnailQualityLabel(option, t)}
-            </option>
-          ))}
-        </select>
-      </div>
+          {showWarning ? <p className="text-sm text-red-600">{t("settings.form.warning")}</p> : null}
+        </CardContent>
+      </Card>
 
-      <div className="space-y-2">
-        <label htmlFor="video-profile" className="text-sm font-medium">
-          {t("settings.form.videoProfile")}
-        </label>
-        <select
-          id="video-profile"
-          value={videoProfile}
-          onChange={onVideoProfileChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {videoProfileOptions.map((option) => (
-            <option key={option} value={option}>
-              {resolveVideoProfileLabel(option, t)}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.mediaOutput")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="thumbnail-quality" className="text-sm font-medium">
+              {t("settings.form.thumbnailQuality")}
+            </label>
+            <select
+              id="thumbnail-quality"
+              value={thumbnailQuality}
+              onChange={onThumbnailQualityChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {thumbnailQualityOptions.map((option) => (
+                <option key={option} value={option}>
+                  {resolveThumbnailQualityLabel(option, t)}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="image-output-format" className="text-sm font-medium">
-          {t("settings.form.imageFormat")}
-        </label>
-        <select
-          id="image-output-format"
-          value={imageOutputFormat}
-          onChange={onImageOutputFormatChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {imageOutputFormatOptions.map((option) => (
-            <option key={option} value={option}>
-              {resolveImageOutputFormatLabel(option, t)}
-            </option>
-          ))}
-        </select>
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="video-profile" className="text-sm font-medium">
+              {t("settings.form.videoProfile")}
+            </label>
+            <select
+              id="video-profile"
+              value={videoProfile}
+              onChange={onVideoProfileChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {videoProfileOptions.map((option) => (
+                <option key={option} value={option}>
+                  {resolveVideoProfileLabel(option, t)}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="image-quality" className="text-sm font-medium">
-          {t("settings.form.imageQuality")}
-        </label>
-        <select
-          id="image-quality"
-          value={imageQuality}
-          onChange={onImageQualityChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {imageQualityOptions.map((option) => (
-            <option key={option} value={option}>
-              {resolveImageQualityLabel(option, t)}
-            </option>
-          ))}
-        </select>
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="image-output-format" className="text-sm font-medium">
+              {t("settings.form.imageFormat")}
+            </label>
+            <select
+              id="image-output-format"
+              value={imageOutputFormat}
+              onChange={onImageOutputFormatChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {imageOutputFormatOptions.map((option) => (
+                <option key={option} value={option}>
+                  {resolveImageOutputFormatLabel(option, t)}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="video-autoplay" className="text-sm font-medium">
-          {t("settings.form.videoAutoplay")}
-        </label>
-        <select
-          id="video-autoplay"
-          value={String(videoAutoplay)}
-          onChange={onVideoAutoplayChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {booleanOptions.map((value) => (
-            <option key={String(value)} value={String(value)}>
-              {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
-            </option>
-          ))}
-        </select>
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="image-quality" className="text-sm font-medium">
+              {t("settings.form.imageQuality")}
+            </label>
+            <select
+              id="image-quality"
+              value={imageQuality}
+              onChange={onImageQualityChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {imageQualityOptions.map((option) => (
+                <option key={option} value={option}>
+                  {resolveImageQualityLabel(option, t)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="space-y-2">
-        <label htmlFor="video-muted-default" className="text-sm font-medium">
-          {t("settings.form.videoMutedByDefault")}
-        </label>
-        <select
-          id="video-muted-default"
-          value={String(videoMutedByDefault)}
-          onChange={onVideoMutedByDefaultChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          {booleanOptions.map((value) => (
-            <option key={String(value)} value={String(value)}>
-              {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.viewerPlayback")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="video-autoplay" className="text-sm font-medium">
+              {t("settings.form.videoAutoplay")}
+            </label>
+            <select
+              id="video-autoplay"
+              value={String(videoAutoplay)}
+              onChange={onVideoAutoplayChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {booleanOptions.map((value) => (
+                <option key={String(value)} value={String(value)}>
+                  {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <label htmlFor="concurrent-downloads" className="text-sm font-medium">
-          {t("settings.form.concurrentDownloads")}
-        </label>
-        <input
-          id="concurrent-downloads"
-          type="number"
-          min={0}
-          step={1}
-          value={concurrentDownloads}
-          onChange={onConcurrentDownloadsChange}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        />
-      </div>
+          <div className="space-y-2">
+            <label htmlFor="video-muted-default" className="text-sm font-medium">
+              {t("settings.form.videoMutedByDefault")}
+            </label>
+            <select
+              id="video-muted-default"
+              value={String(videoMutedByDefault)}
+              onChange={onVideoMutedByDefaultChange}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {booleanOptions.map((value) => (
+                <option key={String(value)} value={String(value)}>
+                  {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
 
-      {showWarning ? (
-        <p className="text-sm text-red-600">
-          {t("settings.form.warning")}
-        </p>
-      ) : null}
-
-      <div className="space-y-2 border-t border-border pt-4">
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          disabled={isCreatingBackup || isCreatingViewerExport}
-          onClick={() => {
-            void onCreateBackupZip();
-          }}
-        >
-          {isCreatingBackup ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t("settings.form.backup.inProgress")}
-            </>
-          ) : (
-            t("settings.form.backup.button")
-          )}
-        </Button>
-        <p className="text-xs text-muted-foreground">{t("settings.form.backup.description")}</p>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          disabled={isCreatingViewerExport || isCreatingBackup}
-          onClick={() => {
-            void onCreateViewerExport();
-          }}
-        >
-          {isCreatingViewerExport ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t("settings.form.viewerExport.inProgress")}
-            </>
-          ) : (
-            t("settings.form.viewerExport.button")
-          )}
-        </Button>
-        <p className="text-xs text-muted-foreground">{t("settings.form.viewerExport.description")}</p>
-
-        {backupStatusMessage ? (
-          <p
-            className={`text-sm ${
-              backupStatusTone === "error"
-                ? "text-red-600"
-                : backupStatusTone === "success"
-                  ? "text-green-600"
-                  : "text-muted-foreground"
-            }`}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.backupExport")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={isCreatingBackup || isCreatingViewerExport}
+            onClick={() => {
+              void onCreateBackupZip();
+            }}
           >
-            {backupStatusMessage}
-          </p>
-        ) : null}
-      </div>
+            {isCreatingBackup ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t("settings.form.backup.inProgress")}
+              </>
+            ) : (
+              t("settings.form.backup.button")
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground">{t("settings.form.backup.description")}</p>
 
-      <div className="space-y-2 border-t border-border pt-4">
-        <Button
-          type="button"
-          variant="destructive"
-          className="w-full"
-          disabled={isResettingAllData}
-          onClick={() => {
-            void onResetAllData();
-          }}
-        >
-          {isResettingAllData
-            ? t("settings.form.reset.inProgress")
-            : t("settings.form.reset.button")}
-        </Button>
-        <p className="text-xs text-muted-foreground">{t("settings.form.reset.description")}</p>
-        {resetErrorMessage ? <p className="text-sm text-red-600">{resetErrorMessage}</p> : null}
-      </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={isCreatingViewerExport || isCreatingBackup}
+            onClick={() => {
+              void onCreateViewerExport();
+            }}
+          >
+            {isCreatingViewerExport ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t("settings.form.viewerExport.inProgress")}
+              </>
+            ) : (
+              t("settings.form.viewerExport.button")
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground">{t("settings.form.viewerExport.description")}</p>
+
+          {backupStatusMessage ? (
+            <p
+              className={`text-sm ${
+                backupStatusTone === "error"
+                  ? "text-red-600"
+                  : backupStatusTone === "success"
+                    ? "text-green-600"
+                    : "text-muted-foreground"
+              }`}
+            >
+              {backupStatusMessage}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.form.section.dataReset")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            type="button"
+            variant="destructive"
+            className="w-full"
+            disabled={isResettingAllData}
+            onClick={() => {
+              void onResetAllData();
+            }}
+          >
+            {isResettingAllData
+              ? t("settings.form.reset.inProgress")
+              : t("settings.form.reset.button")}
+          </Button>
+          <p className="text-xs text-muted-foreground">{t("settings.form.reset.description")}</p>
+          {resetErrorMessage ? <p className="text-sm text-red-600">{resetErrorMessage}</p> : null}
+        </CardContent>
+      </Card>
     </form>
   );
 }
