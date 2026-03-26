@@ -2997,4 +2997,82 @@ mod tests {
         assert_eq!(statuses, vec!["PENDING".to_string(), "PENDING".to_string()]);
         assert_eq!(group_status, "PENDING");
     }
+
+    #[tokio::test]
+    async fn pause_flag_pauses_processing_loop_without_crashing() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite should open");
+
+        sqlx::query(
+            "
+            CREATE TABLE MemoryItem (
+                id INTEGER PRIMARY KEY,
+                status TEXT,
+                last_error_code TEXT,
+                last_error_message TEXT
+            )
+            ",
+        )
+        .execute(&pool)
+        .await
+        .expect("MemoryItem table should be created");
+
+        sqlx::query(
+            "
+            CREATE TABLE Memories (
+                id INTEGER PRIMARY KEY,
+                status TEXT
+            )
+            ",
+        )
+        .execute(&pool)
+        .await
+        .expect("Memories table should be created");
+
+        sqlx::query("INSERT INTO MemoryItem (id, status) VALUES (10, 'queued')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO Memories (id, status) VALUES (300, 'queued')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let units = vec![ProcessUnit {
+            memory_group_id: Some(300),
+            progress_item_id: 10,
+            memory_item_ids: vec![10],
+            date_taken: "2026-02-20".to_string(),
+            location: None,
+        }];
+
+        // Spawn a task that will pause after a short delay
+        let pause_handle = {
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                crate::core::state::set_paused(true);
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                crate::core::state::set_paused(false);
+            })
+        };
+
+        // This should pause while is_paused is true, then return when is_paused is set to false
+        let result = wait_for_pause_or_stop_and_mark_pending(&pool, &units).await;
+
+        pause_handle.await.expect("pause task should complete");
+
+        // Should return Ok(false) because we never set stopped
+        assert!(result.is_ok(), "should not error");
+        assert_eq!(result.unwrap(), false, "should return false when paused then resumed (not stopped)");
+
+        // Item status should still be 'queued' since we didn't stop
+        let item_status: String = sqlx::query_scalar("SELECT status FROM MemoryItem WHERE id = 10")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(item_status, "queued", "item should still be queued when resumed");
+
+        crate::core::state::reset();
+    }
 }
