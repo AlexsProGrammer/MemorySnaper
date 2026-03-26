@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useTheme } from "next-themes";
 import { save } from "@tauri-apps/plugin-dialog";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   clearPersistedAppClientState,
@@ -559,9 +560,14 @@ export function SettingsForm() {
             void onCreateBackupZip();
           }}
         >
-          {isCreatingBackup
-            ? t("settings.form.backup.inProgress")
-            : t("settings.form.backup.button")}
+          {isCreatingBackup ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t("settings.form.backup.inProgress")}
+            </>
+          ) : (
+            t("settings.form.backup.button")
+          )}
         </Button>
         <p className="text-xs text-muted-foreground">{t("settings.form.backup.description")}</p>
 
@@ -574,9 +580,14 @@ export function SettingsForm() {
             void onCreateViewerExport();
           }}
         >
-          {isCreatingViewerExport
-            ? t("settings.form.viewerExport.inProgress")
-            : t("settings.form.viewerExport.button")}
+          {isCreatingViewerExport ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t("settings.form.viewerExport.inProgress")}
+            </>
+          ) : (
+            t("settings.form.viewerExport.button")
+          )}
         </Button>
         <p className="text-xs text-muted-foreground">{t("settings.form.viewerExport.description")}</p>
 
