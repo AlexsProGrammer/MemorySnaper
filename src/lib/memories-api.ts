@@ -74,6 +74,9 @@ export type DownloadRateLimitSettings = {
 };
 
 export type ThumbnailQuality = "360p" | "480p" | "720p" | "1080p";
+export type VideoProfile = "mp4_compatible" | "linux_webm" | "mov_fast" | "mov_high_quality";
+export type ImageOutputFormat = "jpg" | "webp" | "png";
+export type ImageQuality = "full" | "balanced" | "fast";
 
 export type ZipSessionInitResult = {
   jobId: string;
@@ -181,11 +184,17 @@ export async function processDownloadedMemories(
   outputDir: string,
   keepOriginals: boolean,
   thumbnailQuality?: ThumbnailQuality,
+  videoProfile?: VideoProfile,
+  imageOutputFormat?: ImageOutputFormat,
+  imageQuality?: ImageQuality,
 ): Promise<ProcessMemoriesResult> {
   return invoke<ProcessMemoriesResult>("process_downloaded_memories", {
     outputDir,
     keepOriginals,
     thumbnailQuality,
+    videoProfile,
+    imageOutputFormat,
+    imageQuality,
   });
 }
 
@@ -194,12 +203,18 @@ export async function processMemoriesFromZipArchives(
   outputDir: string,
   keepOriginals: boolean,
   thumbnailQuality?: ThumbnailQuality,
+  videoProfile?: VideoProfile,
+  imageOutputFormat?: ImageOutputFormat,
+  imageQuality?: ImageQuality,
 ): Promise<ProcessMemoriesResult> {
   return invoke<ProcessMemoriesResult>("process_memories_from_zip_archives", {
     zipPaths,
     outputDir,
     keepOriginals,
     thumbnailQuality,
+    videoProfile,
+    imageOutputFormat,
+    imageQuality,
   });
 }
 

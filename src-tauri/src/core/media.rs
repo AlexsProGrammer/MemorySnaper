@@ -8,6 +8,82 @@ enum MediaKind {
     Video,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum VideoOutputProfile {
+    Mp4Compatible,
+    LinuxWebm,
+    MovFast,
+    MovHighQuality,
+}
+
+impl VideoOutputProfile {
+    pub fn from_setting(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("linux_webm") => Self::LinuxWebm,
+            Some("mov_fast") => Self::MovFast,
+            Some("mov_high_quality") => Self::MovHighQuality,
+            Some("mp4_compatible") | None | Some(_) => Self::Mp4Compatible,
+        }
+    }
+
+    pub fn output_extension(self) -> &'static str {
+        match self {
+            Self::Mp4Compatible => "mp4",
+            Self::LinuxWebm => "webm",
+            Self::MovFast | Self::MovHighQuality => "mov",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ImageOutputFormat {
+    Jpg,
+    Webp,
+    Png,
+}
+
+impl ImageOutputFormat {
+    pub fn from_setting(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("webp") => Self::Webp,
+            Some("png") => Self::Png,
+            Some("jpg") | None | Some(_) => Self::Jpg,
+        }
+    }
+
+    pub fn output_extension(self) -> &'static str {
+        match self {
+            Self::Jpg => "jpg",
+            Self::Webp => "webp",
+            Self::Png => "png",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ImageQuality {
+    Full,
+    Balanced,
+    Fast,
+}
+
+impl ImageQuality {
+    pub fn from_setting(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("balanced") => Self::Balanced,
+            Some("fast") => Self::Fast,
+            Some("full") | None | Some(_) => Self::Full,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MediaEncodingOptions {
+    pub video_profile: VideoOutputProfile,
+    pub image_format: ImageOutputFormat,
+    pub image_quality: ImageQuality,
+}
+
 #[derive(Debug)]
 pub enum MediaError {
     Io(std::io::Error),
@@ -26,7 +102,7 @@ impl Display for MediaError {
             Self::UnsupportedMediaType(path) => {
                 write!(
                     f,
-                    "unsupported media type for '{}': expected JPEG/PNG or MP4/MOV",
+                    "unsupported media type for '{}': expected image (jpg/jpeg/png/webp) or video (mp4/mov/m4v/webm)",
                     path.display()
                 )
             }
@@ -64,6 +140,7 @@ pub async fn merge_media_with_optional_overlay(
     base_media_path: &Path,
     overlay_path: Option<&Path>,
     output_path: &Path,
+    encoding_options: MediaEncodingOptions,
 ) -> Result<(), MediaError> {
     let base_media_path = base_media_path.to_path_buf();
     let overlay_path = overlay_path.map(Path::to_path_buf);
@@ -83,25 +160,18 @@ pub async fn merge_media_with_optional_overlay(
                 let media_kind = media_kind_from_path(&base_media_path)
                     .ok_or_else(|| MediaError::UnsupportedMediaType(base_media_path.clone()))?;
 
-                let writes_in_place = paths_point_to_same_target(&base_media_path, &output_path);
-                let ffmpeg_output_path = if writes_in_place {
-                    temporary_output_path_with_suffix(&output_path, "overlay.tmp")?
-                } else {
-                    output_path.clone()
-                };
+                let ffmpeg_output_path = temporary_output_path_with_suffix(&output_path, "overlay.tmp")?;
 
                 let args = build_ffmpeg_overlay_args(
                     &base_media_path,
                     &overlay_path,
                     &ffmpeg_output_path,
                     media_kind,
+                    encoding_options,
                 );
 
                 run_ffmpeg(args)?;
-
-                if writes_in_place {
-                    std::fs::rename(&ffmpeg_output_path, &output_path)?;
-                }
+                std::fs::rename(&ffmpeg_output_path, &output_path)?;
 
                 Ok(())
             }
@@ -111,27 +181,32 @@ pub async fn merge_media_with_optional_overlay(
 
                     match media_kind {
                         MediaKind::Image => {
-                            if paths_point_to_same_target(&base_media_path, &output_path) {
-                                return Ok(());
-                            }
-
-                            std::fs::copy(&base_media_path, &output_path)?;
+                            let ffmpeg_output_path = temporary_output_path_with_suffix(
+                                &output_path,
+                                "image.tmp",
+                            )?;
+                            let args = build_ffmpeg_image_transcode_args(
+                                &base_media_path,
+                                &ffmpeg_output_path,
+                                encoding_options,
+                            );
+                            run_ffmpeg(args)?;
+                            std::fs::rename(&ffmpeg_output_path, &output_path)?;
                             Ok(())
                         }
                         MediaKind::Video => {
-                            let writes_in_place = paths_point_to_same_target(&base_media_path, &output_path);
-                            let ffmpeg_output_path = if writes_in_place {
-                                temporary_output_path_with_suffix(&output_path, "normalize.tmp")?
-                            } else {
-                                output_path.clone()
-                            };
+                            let ffmpeg_output_path = temporary_output_path_with_suffix(
+                                &output_path,
+                                "normalize.tmp",
+                            )?;
 
-                            let args = build_ffmpeg_video_normalize_args(&base_media_path, &ffmpeg_output_path);
+                            let args = build_ffmpeg_video_normalize_args(
+                                &base_media_path,
+                                &ffmpeg_output_path,
+                                encoding_options.video_profile,
+                            );
                             run_ffmpeg(args)?;
-
-                            if writes_in_place {
-                                std::fs::rename(&ffmpeg_output_path, &output_path)?;
-                            }
+                            std::fs::rename(&ffmpeg_output_path, &output_path)?;
 
                             Ok(())
                         }
@@ -230,8 +305,8 @@ fn media_kind_from_path(path: &Path) -> Option<MediaKind> {
     let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
 
     match extension.as_str() {
-        "jpg" | "jpeg" | "png" => Some(MediaKind::Image),
-        "mp4" | "mov" => Some(MediaKind::Video),
+        "jpg" | "jpeg" | "png" | "webp" => Some(MediaKind::Image),
+        "mp4" | "mov" | "m4v" | "webm" => Some(MediaKind::Video),
         _ => None,
     }
 }
@@ -241,6 +316,7 @@ fn build_ffmpeg_overlay_args(
     overlay_path: &Path,
     output_path: &Path,
     media_kind: MediaKind,
+    encoding_options: MediaEncodingOptions,
 ) -> Vec<String> {
     let mut args = vec![
         "-y".to_string(),
@@ -256,6 +332,11 @@ fn build_ffmpeg_overlay_args(
             args.push("[0:v][1:v]overlay=0:0:format=auto".to_string());
             args.push("-frames:v".to_string());
             args.push("1".to_string());
+            append_image_encoding_args(
+                &mut args,
+                encoding_options.image_format,
+                encoding_options.image_quality,
+            );
         }
         MediaKind::Video => {
             args.push("-filter_complex".to_string());
@@ -267,22 +348,7 @@ fn build_ffmpeg_overlay_args(
             args.push("[vout]".to_string());
             args.push("-map".to_string());
             args.push("0:a?".to_string());
-            args.push("-c:a".to_string());
-            args.push("aac".to_string());
-            args.push("-b:a".to_string());
-            args.push("128k".to_string());
-            args.push("-c:v".to_string());
-            args.push("libx264".to_string());
-            args.push("-crf".to_string());
-            args.push("18".to_string());
-            args.push("-preset".to_string());
-            args.push("veryfast".to_string());
-            args.push("-profile:v".to_string());
-            args.push("high".to_string());
-            args.push("-pix_fmt".to_string());
-            args.push("yuv420p".to_string());
-            args.push("-movflags".to_string());
-            args.push("+faststart".to_string());
+            append_video_encoding_args(&mut args, encoding_options.video_profile);
         }
     }
 
@@ -293,8 +359,9 @@ fn build_ffmpeg_overlay_args(
 fn build_ffmpeg_video_normalize_args(
     base_media_path: &Path,
     output_path: &Path,
+    video_profile: VideoOutputProfile,
 ) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "-y".to_string(),
         "-i".to_string(),
         base_media_path.to_string_lossy().to_string(),
@@ -303,22 +370,177 @@ fn build_ffmpeg_video_normalize_args(
         "-map".to_string(),
         "0:a?".to_string(),
         "-dn".to_string(),
-        "-c:v".to_string(),
-        "libx264".to_string(),
-        "-preset".to_string(),
-        "veryfast".to_string(),
-        "-crf".to_string(),
-        "18".to_string(),
-        "-pix_fmt".to_string(),
-        "yuv420p".to_string(),
-        "-c:a".to_string(),
-        "aac".to_string(),
-        "-b:a".to_string(),
-        "128k".to_string(),
-        "-movflags".to_string(),
-        "+faststart".to_string(),
-        output_path.to_string_lossy().to_string(),
-    ]
+    ];
+
+    append_video_encoding_args(&mut args, video_profile);
+    args.push(output_path.to_string_lossy().to_string());
+    args
+}
+
+fn build_ffmpeg_image_transcode_args(
+    base_media_path: &Path,
+    output_path: &Path,
+    encoding_options: MediaEncodingOptions,
+) -> Vec<String> {
+    let mut args = vec![
+        "-y".to_string(),
+        "-i".to_string(),
+        base_media_path.to_string_lossy().to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(),
+    ];
+
+    append_image_encoding_args(
+        &mut args,
+        encoding_options.image_format,
+        encoding_options.image_quality,
+    );
+    args.push(output_path.to_string_lossy().to_string());
+    args
+}
+
+fn append_video_encoding_args(args: &mut Vec<String>, profile: VideoOutputProfile) {
+    match profile {
+        VideoOutputProfile::Mp4Compatible => {
+            args.push("-c:v".to_string());
+            args.push("libx264".to_string());
+            args.push("-preset".to_string());
+            args.push("veryfast".to_string());
+            args.push("-crf".to_string());
+            args.push("18".to_string());
+            args.push("-profile:v".to_string());
+            args.push("high".to_string());
+            args.push("-pix_fmt".to_string());
+            args.push("yuv420p".to_string());
+            args.push("-c:a".to_string());
+            args.push("aac".to_string());
+            args.push("-b:a".to_string());
+            args.push("128k".to_string());
+            args.push("-movflags".to_string());
+            args.push("+faststart".to_string());
+        }
+        VideoOutputProfile::LinuxWebm => {
+            args.push("-c:v".to_string());
+            args.push("libvpx".to_string());
+            args.push("-pix_fmt".to_string());
+            args.push("yuv420p".to_string());
+            args.push("-quality".to_string());
+            args.push("good".to_string());
+            args.push("-cpu-used".to_string());
+            args.push("2".to_string());
+            args.push("-b:v".to_string());
+            args.push("0".to_string());
+            args.push("-crf".to_string());
+            args.push("20".to_string());
+            args.push("-g".to_string());
+            args.push("240".to_string());
+            args.push("-keyint_min".to_string());
+            args.push("24".to_string());
+            args.push("-auto-alt-ref".to_string());
+            args.push("1".to_string());
+            args.push("-lag-in-frames".to_string());
+            args.push("25".to_string());
+            args.push("-error-resilient".to_string());
+            args.push("1".to_string());
+            args.push("-deadline".to_string());
+            args.push("good".to_string());
+            args.push("-c:a".to_string());
+            args.push("libvorbis".to_string());
+            args.push("-q:a".to_string());
+            args.push("4".to_string());
+            args.push("-f".to_string());
+            args.push("webm".to_string());
+        }
+        VideoOutputProfile::MovFast => {
+            args.push("-c:v".to_string());
+            args.push("libx264".to_string());
+            args.push("-preset".to_string());
+            args.push("ultrafast".to_string());
+            args.push("-crf".to_string());
+            args.push("23".to_string());
+            args.push("-profile:v".to_string());
+            args.push("main".to_string());
+            args.push("-pix_fmt".to_string());
+            args.push("yuv420p".to_string());
+            args.push("-c:a".to_string());
+            args.push("aac".to_string());
+            args.push("-b:a".to_string());
+            args.push("128k".to_string());
+        }
+        VideoOutputProfile::MovHighQuality => {
+            args.push("-c:v".to_string());
+            args.push("libx264".to_string());
+            args.push("-preset".to_string());
+            args.push("slow".to_string());
+            args.push("-crf".to_string());
+            args.push("16".to_string());
+            args.push("-profile:v".to_string());
+            args.push("high".to_string());
+            args.push("-pix_fmt".to_string());
+            args.push("yuv420p".to_string());
+            args.push("-c:a".to_string());
+            args.push("aac".to_string());
+            args.push("-b:a".to_string());
+            args.push("192k".to_string());
+        }
+    }
+}
+
+fn append_image_encoding_args(
+    args: &mut Vec<String>,
+    image_format: ImageOutputFormat,
+    image_quality: ImageQuality,
+) {
+    match image_format {
+        ImageOutputFormat::Jpg => {
+            args.push("-c:v".to_string());
+            args.push("mjpeg".to_string());
+            args.push("-q:v".to_string());
+            args.push(
+                match image_quality {
+                    ImageQuality::Full => "2",
+                    ImageQuality::Balanced => "5",
+                    ImageQuality::Fast => "8",
+                }
+                .to_string(),
+            );
+        }
+        ImageOutputFormat::Webp => {
+            args.push("-c:v".to_string());
+            args.push("libwebp".to_string());
+            args.push("-quality".to_string());
+            args.push(
+                match image_quality {
+                    ImageQuality::Full => "100",
+                    ImageQuality::Balanced => "86",
+                    ImageQuality::Fast => "72",
+                }
+                .to_string(),
+            );
+            args.push("-compression_level".to_string());
+            args.push(
+                match image_quality {
+                    ImageQuality::Full => "6",
+                    ImageQuality::Balanced => "4",
+                    ImageQuality::Fast => "2",
+                }
+                .to_string(),
+            );
+        }
+        ImageOutputFormat::Png => {
+            args.push("-c:v".to_string());
+            args.push("png".to_string());
+            args.push("-compression_level".to_string());
+            args.push(
+                match image_quality {
+                    ImageQuality::Full => "9",
+                    ImageQuality::Balanced => "6",
+                    ImageQuality::Fast => "2",
+                }
+                .to_string(),
+            );
+        }
+    }
 }
 
 fn build_ffmpeg_metadata_args(
@@ -429,20 +651,6 @@ fn temporary_output_path_with_suffix(media_path: &Path, suffix: &str) -> Result<
     Ok(media_path.with_file_name(format!("{stem}.{suffix}.{extension}")))
 }
 
-fn paths_point_to_same_target(left: &Path, right: &Path) -> bool {
-    if left == right {
-        return true;
-    }
-
-    let left_canonical = std::fs::canonicalize(left).ok();
-    let right_canonical = std::fs::canonicalize(right).ok();
-
-    match (left_canonical, right_canonical) {
-        (Some(left_canonical), Some(right_canonical)) => left_canonical == right_canonical,
-        _ => false,
-    }
-}
-
 fn remove_file_if_exists(path: &Path) -> Result<(), MediaError> {
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -458,7 +666,8 @@ mod tests {
 
     use super::{
         build_ffmpeg_metadata_args, build_ffmpeg_overlay_args, cleanup_intermediate_files,
-        media_kind_from_path, normalize_datetime_for_ffmpeg, parse_coordinates, MediaKind,
+        media_kind_from_path, normalize_datetime_for_ffmpeg, parse_coordinates, ImageOutputFormat,
+        ImageQuality, MediaEncodingOptions, MediaKind, VideoOutputProfile,
     };
 
     #[test]
@@ -479,7 +688,7 @@ mod tests {
             media_kind_from_path(Path::new("memory.mov")),
             Some(MediaKind::Video)
         );
-        assert_eq!(media_kind_from_path(Path::new("memory.webm")), None);
+        assert_eq!(media_kind_from_path(Path::new("memory.webm")), Some(MediaKind::Video));
     }
 
     #[test]
@@ -489,6 +698,11 @@ mod tests {
             Path::new("overlay.png"),
             Path::new("output.jpg"),
             MediaKind::Image,
+            MediaEncodingOptions {
+                video_profile: VideoOutputProfile::Mp4Compatible,
+                image_format: ImageOutputFormat::Jpg,
+                image_quality: ImageQuality::Full,
+            },
         );
 
         assert!(args.contains(&"-frames:v".to_string()));
@@ -502,6 +716,11 @@ mod tests {
             Path::new("overlay.png"),
             Path::new("output.mp4"),
             MediaKind::Video,
+            MediaEncodingOptions {
+                video_profile: VideoOutputProfile::Mp4Compatible,
+                image_format: ImageOutputFormat::Jpg,
+                image_quality: ImageQuality::Full,
+            },
         );
 
         assert!(args.contains(&"libx264".to_string()));

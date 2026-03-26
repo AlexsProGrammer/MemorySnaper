@@ -1577,6 +1577,9 @@ async fn process_downloaded_memories(
     output_dir: String,
     keep_originals: bool,
     thumbnail_quality: Option<String>,
+    video_profile: Option<String>,
+    image_output_format: Option<String>,
+    image_quality: Option<String>,
 ) -> Result<ProcessMemoriesResult, String> {
     let resolved_output_dir = resolve_output_dir(&app, &output_dir)?;
 
@@ -1600,6 +1603,9 @@ async fn process_downloaded_memories(
         thumbnail_quality.as_deref(),
     )
     .max_dimension();
+    let video_output_profile = core::media::VideoOutputProfile::from_setting(video_profile.as_deref());
+    let image_output_format = core::media::ImageOutputFormat::from_setting(image_output_format.as_deref());
+    let image_quality = core::media::ImageQuality::from_setting(image_quality.as_deref());
     let pool = sqlx::SqlitePool::connect(&database_url)
         .await
         .map_err(|error| format!("failed to connect to memories database: {error}"))?;
@@ -1839,6 +1845,9 @@ async fn process_downloaded_memories(
             export_dir: output_path.to_path_buf(),
             thumbnail_dir: thumbnail_path.clone(),
             thumbnail_max_dimension,
+            video_output_profile,
+            image_output_format,
+            image_quality,
             keep_originals,
             database_url: database_url.clone(),
         })
@@ -2073,6 +2082,9 @@ async fn process_memories_from_zip_archives(
     output_dir: String,
     keep_originals: bool,
     thumbnail_quality: Option<String>,
+    video_profile: Option<String>,
+    image_output_format: Option<String>,
+    image_quality: Option<String>,
 ) -> Result<ProcessMemoriesResult, String> {
     if zip_paths.is_empty() {
         return Err("zip_paths must not be empty".to_string());
@@ -2084,6 +2096,9 @@ async fn process_memories_from_zip_archives(
         thumbnail_quality.as_deref(),
     )
     .max_dimension();
+    let video_output_profile = crate::core::media::VideoOutputProfile::from_setting(video_profile.as_deref());
+    let image_output_format = crate::core::media::ImageOutputFormat::from_setting(image_output_format.as_deref());
+    let image_quality = crate::core::media::ImageQuality::from_setting(image_quality.as_deref());
     let pool = sqlx::SqlitePool::connect(&database_url)
         .await
         .map_err(|error| format!("failed to connect to memories database: {error}"))?;
@@ -2270,6 +2285,9 @@ async fn process_memories_from_zip_archives(
             export_dir: resolved_output_dir.clone(),
             thumbnail_dir: thumbnail_path.clone(),
             thumbnail_max_dimension,
+            video_output_profile,
+            image_output_format,
+            image_quality,
             keep_originals,
             database_url: database_url.clone(),
         })
@@ -2523,15 +2541,6 @@ fn find_output_file_for_memory_item_recursive(
             };
 
             if stem != target_stem {
-                continue;
-            }
-
-            let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-                continue;
-            };
-
-            let normalized_extension = extension.to_ascii_lowercase();
-            if matches!(normalized_extension.as_str(), "webp" | "png") {
                 continue;
             }
 

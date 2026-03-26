@@ -3,14 +3,20 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
   clearPersistedAppClientState,
+  parseImageOutputFormatPreference,
+  parseImageQualityPreference,
   parseThumbnailQualityPreference,
   parseStartupPagePreference,
   parseThemePreference,
+  parseVideoProfilePreference,
   readAppSettings,
   writeAppSettings,
+  type ImageOutputFormatPreference,
+  type ImageQualityPreference,
   type ThumbnailQualityPreference,
   type StartupPagePreference,
   type ThemePreference,
+  type VideoProfilePreference,
 } from "@/lib/app-settings";
 import { parseLanguagePreference, type LanguagePreference } from "@/lib/language";
 import { useI18n } from "@/lib/i18n";
@@ -21,6 +27,14 @@ const CONCURRENCY_WARNING_THRESHOLD = 5;
 
 const startupPageOptions: StartupPagePreference[] = ["system", "downloader", "viewer"];
 const thumbnailQualityOptions: ThumbnailQualityPreference[] = ["360p", "480p", "720p", "1080p"];
+const videoProfileOptions: VideoProfilePreference[] = [
+  "mp4_compatible",
+  "linux_webm",
+  "mov_fast",
+  "mov_high_quality",
+];
+const imageOutputFormatOptions: ImageOutputFormatPreference[] = ["jpg", "webp", "png"];
+const imageQualityOptions: ImageQualityPreference[] = ["full", "balanced", "fast"];
 
 function clampNonNegativeInteger(value: string): number {
   const parsedValue = Number.parseInt(value, 10);
@@ -61,6 +75,55 @@ function resolveThumbnailQualityLabel(
   return t("settings.form.thumbnailQuality.480p");
 }
 
+function resolveVideoProfileLabel(
+  value: VideoProfilePreference,
+  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
+): string {
+  if (value === "linux_webm") {
+    return t("settings.form.videoProfile.linux_webm");
+  }
+
+  if (value === "mov_fast") {
+    return t("settings.form.videoProfile.mov_fast");
+  }
+
+  if (value === "mov_high_quality") {
+    return t("settings.form.videoProfile.mov_high_quality");
+  }
+
+  return t("settings.form.videoProfile.mp4_compatible");
+}
+
+function resolveImageOutputFormatLabel(
+  value: ImageOutputFormatPreference,
+  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
+): string {
+  if (value === "webp") {
+    return t("settings.form.imageFormat.webp");
+  }
+
+  if (value === "png") {
+    return t("settings.form.imageFormat.png");
+  }
+
+  return t("settings.form.imageFormat.jpg");
+}
+
+function resolveImageQualityLabel(
+  value: ImageQualityPreference,
+  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
+): string {
+  if (value === "balanced") {
+    return t("settings.form.imageQuality.balanced");
+  }
+
+  if (value === "fast") {
+    return t("settings.form.imageQuality.fast");
+  }
+
+  return t("settings.form.imageQuality.full");
+}
+
 export function SettingsForm() {
   const { theme, setTheme } = useTheme();
   const { languagePreference, resolvedLocale, setLanguagePreference, t } = useI18n();
@@ -68,6 +131,9 @@ export function SettingsForm() {
   const [concurrentDownloads, setConcurrentDownloads] = useState<number>(3);
   const [startupPagePreference, setStartupPagePreference] = useState<StartupPagePreference>("system");
   const [thumbnailQuality, setThumbnailQuality] = useState<ThumbnailQualityPreference>("480p");
+  const [videoProfile, setVideoProfile] = useState<VideoProfilePreference>("mp4_compatible");
+  const [imageOutputFormat, setImageOutputFormat] = useState<ImageOutputFormatPreference>("jpg");
+  const [imageQuality, setImageQuality] = useState<ImageQualityPreference>("full");
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
   const [isResettingAllData, setIsResettingAllData] = useState(false);
   const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
@@ -78,6 +144,9 @@ export function SettingsForm() {
     setConcurrentDownloads(settings.concurrentDownloads);
     setStartupPagePreference(settings.startupPagePreference);
     setThumbnailQuality(settings.thumbnailQuality);
+    setVideoProfile(settings.videoProfile);
+    setImageOutputFormat(settings.imageOutputFormat);
+    setImageQuality(settings.imageQuality);
     setHasLoadedSettings(true);
   }, []);
 
@@ -93,6 +162,9 @@ export function SettingsForm() {
       themePreference: resolveThemePreference(theme),
       startupPagePreference,
       thumbnailQuality,
+      videoProfile,
+      imageOutputFormat,
+      imageQuality,
     });
   }, [
     concurrentDownloads,
@@ -101,6 +173,9 @@ export function SettingsForm() {
     requestsPerMinute,
     startupPagePreference,
     thumbnailQuality,
+    videoProfile,
+    imageOutputFormat,
+    imageQuality,
     theme,
   ]);
 
@@ -129,6 +204,18 @@ export function SettingsForm() {
 
   const onThumbnailQualityChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setThumbnailQuality(parseThumbnailQualityPreference(event.target.value));
+  };
+
+  const onVideoProfileChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setVideoProfile(parseVideoProfilePreference(event.target.value));
+  };
+
+  const onImageOutputFormatChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setImageOutputFormat(parseImageOutputFormatPreference(event.target.value));
+  };
+
+  const onImageQualityChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setImageQuality(parseImageQualityPreference(event.target.value));
   };
 
   const onResetAllData = async () => {
@@ -254,6 +341,60 @@ export function SettingsForm() {
           {thumbnailQualityOptions.map((option) => (
             <option key={option} value={option}>
               {resolveThumbnailQualityLabel(option, t)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="video-profile" className="text-sm font-medium">
+          {t("settings.form.videoProfile")}
+        </label>
+        <select
+          id="video-profile"
+          value={videoProfile}
+          onChange={onVideoProfileChange}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          {videoProfileOptions.map((option) => (
+            <option key={option} value={option}>
+              {resolveVideoProfileLabel(option, t)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="image-output-format" className="text-sm font-medium">
+          {t("settings.form.imageFormat")}
+        </label>
+        <select
+          id="image-output-format"
+          value={imageOutputFormat}
+          onChange={onImageOutputFormatChange}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          {imageOutputFormatOptions.map((option) => (
+            <option key={option} value={option}>
+              {resolveImageOutputFormatLabel(option, t)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="image-quality" className="text-sm font-medium">
+          {t("settings.form.imageQuality")}
+        </label>
+        <select
+          id="image-quality"
+          value={imageQuality}
+          onChange={onImageQualityChange}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          {imageQualityOptions.map((option) => (
+            <option key={option} value={option}>
+              {resolveImageQualityLabel(option, t)}
             </option>
           ))}
         </select>

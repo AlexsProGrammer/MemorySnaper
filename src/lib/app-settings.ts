@@ -7,6 +7,13 @@ export const DOWNLOADER_SESSION_STORAGE_KEY = "memorysnaper.downloader-session.v
 export type ThemePreference = "light" | "dark" | "system";
 export type StartupPagePreference = "system" | "downloader" | "viewer";
 export type ThumbnailQualityPreference = "360p" | "480p" | "720p" | "1080p";
+export type VideoProfilePreference =
+  | "mp4_compatible"
+  | "linux_webm"
+  | "mov_fast"
+  | "mov_high_quality";
+export type ImageOutputFormatPreference = "jpg" | "webp" | "png";
+export type ImageQualityPreference = "full" | "balanced" | "fast";
 
 export type AppSettings = {
   requestsPerMinute: number;
@@ -15,6 +22,9 @@ export type AppSettings = {
   themePreference: ThemePreference;
   startupPagePreference: StartupPagePreference;
   thumbnailQuality: ThumbnailQualityPreference;
+  videoProfile: VideoProfilePreference;
+  imageOutputFormat: ImageOutputFormatPreference;
+  imageQuality: ImageQualityPreference;
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -24,6 +34,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   themePreference: "system",
   startupPagePreference: "system",
   thumbnailQuality: "480p",
+  videoProfile: "mp4_compatible",
+  imageOutputFormat: "jpg",
+  imageQuality: "full",
 };
 
 export function parseStartupPagePreference(value: string | null): StartupPagePreference {
@@ -50,6 +63,35 @@ export function parseThumbnailQualityPreference(
   }
 
   return "480p";
+}
+
+export function parseVideoProfilePreference(value: string | null): VideoProfilePreference {
+  if (
+    value === "mp4_compatible" ||
+    value === "linux_webm" ||
+    value === "mov_fast" ||
+    value === "mov_high_quality"
+  ) {
+    return value;
+  }
+
+  return "mp4_compatible";
+}
+
+export function parseImageOutputFormatPreference(value: string | null): ImageOutputFormatPreference {
+  if (value === "jpg" || value === "webp" || value === "png") {
+    return value;
+  }
+
+  return "jpg";
+}
+
+export function parseImageQualityPreference(value: string | null): ImageQualityPreference {
+  if (value === "full" || value === "balanced" || value === "fast") {
+    return value;
+  }
+
+  return "full";
 }
 
 function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
@@ -95,6 +137,21 @@ function parseSettings(rawValue: string): AppSettings | null {
         ? (Reflect.get(parsedValue, "thumbnailQuality") as string)
         : null,
     );
+    const videoProfile = parseVideoProfilePreference(
+      typeof Reflect.get(parsedValue, "videoProfile") === "string"
+        ? (Reflect.get(parsedValue, "videoProfile") as string)
+        : null,
+    );
+    const imageOutputFormat = parseImageOutputFormatPreference(
+      typeof Reflect.get(parsedValue, "imageOutputFormat") === "string"
+        ? (Reflect.get(parsedValue, "imageOutputFormat") as string)
+        : null,
+    );
+    const imageQuality = parseImageQualityPreference(
+      typeof Reflect.get(parsedValue, "imageQuality") === "string"
+        ? (Reflect.get(parsedValue, "imageQuality") as string)
+        : null,
+    );
 
     return {
       requestsPerMinute,
@@ -103,6 +160,9 @@ function parseSettings(rawValue: string): AppSettings | null {
       themePreference,
       startupPagePreference,
       thumbnailQuality,
+      videoProfile,
+      imageOutputFormat,
+      imageQuality,
     };
   } catch {
     return null;

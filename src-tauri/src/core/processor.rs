@@ -105,6 +105,9 @@ pub struct ProcessMediaInput {
     pub export_dir: PathBuf,
     pub thumbnail_dir: PathBuf,
     pub thumbnail_max_dimension: u16,
+    pub video_output_profile: media::VideoOutputProfile,
+    pub image_output_format: media::ImageOutputFormat,
+    pub image_quality: media::ImageQuality,
     pub keep_originals: bool,
     pub database_url: String,
 }
@@ -153,12 +156,18 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
         input.keep_originals
     );
 
-    let extension = media_extension_from_path(&input.raw_media_paths[0]).unwrap_or("bin");
+    let source_extension = media_extension_from_path(&input.raw_media_paths[0]).unwrap_or("bin");
+    let source_is_video = is_video_extension(source_extension);
+    let output_extension = if source_is_video {
+        input.video_output_profile.output_extension()
+    } else {
+        input.image_output_format.output_extension()
+    };
     let final_media_path = build_final_media_path(
         &input.export_dir,
         &input.date_taken,
         input.memory_item_id,
-        extension,
+        output_extension,
     )?;
     let thumbnail_path = build_thumbnail_path(
         &input.thumbnail_dir,
@@ -174,10 +183,10 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
 
     let mut temp_concat_path: Option<PathBuf> = None;
 
-    if input.raw_media_paths.len() > 1 && is_video_extension(extension) {
+    if input.raw_media_paths.len() > 1 && source_is_video {
         let concat_output_path = input
             .export_dir
-            .join(format!("{}.concat.{}", input.memory_item_id, extension));
+            .join(format!("{}.concat.{}", input.memory_item_id, source_extension));
 
         eprintln!(
             "[processor-debug] concatenating parts memory_item_id={} parts={} concat_output='{}'",
@@ -195,7 +204,17 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
         .or_else(|| input.raw_media_paths.first().map(PathBuf::as_path))
         .ok_or(ProcessorError::InvalidInput("missing base media path"))?;
 
-    merge_staged_media(base_media_path, input.overlay_path.as_deref(), &final_media_path).await?;
+    merge_staged_media(
+        base_media_path,
+        input.overlay_path.as_deref(),
+        &final_media_path,
+        media::MediaEncodingOptions {
+            video_profile: input.video_output_profile,
+            image_format: input.image_output_format,
+            image_quality: input.image_quality,
+        },
+    )
+    .await?;
 
     media::write_metadata_with_ffmpeg(
         &final_media_path,
@@ -330,6 +349,7 @@ async fn merge_staged_media(
     base_media_path: &Path,
     overlay_path: Option<&Path>,
     output_path: &Path,
+    encoding_options: media::MediaEncodingOptions,
 ) -> Result<(), ProcessorError> {
     let existing_overlay_path = resolve_existing_overlay_path(overlay_path).await?;
 
@@ -352,6 +372,7 @@ async fn merge_staged_media(
         base_media_path,
         existing_overlay_path.as_deref(),
         output_path,
+        encoding_options,
     )
     .await?;
 
@@ -714,7 +735,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merge_staged_media_copies_base_when_overlay_is_missing() {
+    async fn merge_staged_media_writes_output_when_overlay_is_missing() {
         let temp_dir = tempdir().unwrap();
         let base_path = temp_dir.path().join("base.jpg");
         let missing_overlay_path = temp_dir.path().join("missing-overlay.png");
@@ -722,12 +743,20 @@ mod tests {
 
         std::fs::write(&base_path, b"base-image-bytes").unwrap();
 
-        merge_staged_media(&base_path, Some(&missing_overlay_path), &output_path)
+        merge_staged_media(
+            &base_path,
+            Some(&missing_overlay_path),
+            &output_path,
+            media::MediaEncodingOptions {
+                video_profile: media::VideoOutputProfile::Mp4Compatible,
+                image_format: media::ImageOutputFormat::Jpg,
+                image_quality: media::ImageQuality::Full,
+            },
+        )
             .await
             .unwrap();
 
         assert!(output_path.exists());
-        assert_eq!(std::fs::read(&output_path).unwrap(), b"base-image-bytes");
     }
 
     #[test]

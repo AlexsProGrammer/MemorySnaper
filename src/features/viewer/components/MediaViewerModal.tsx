@@ -201,6 +201,19 @@ export function MediaViewerModal({
       return;
     }
 
+    const normalized = item.mediaSrc.toLowerCase();
+    if (normalized.includes(".webm")) {
+      setVideoObjectUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return null;
+      });
+      setIsVideoLoading(false);
+      setVideoLoadError(false);
+      return;
+    }
+
     let isCancelled = false;
     let localObjectUrl: string | null = null;
 
@@ -607,11 +620,15 @@ export function MediaViewerModal({
                   key={videoObjectUrl ?? item.mediaSrc}
                   className="h-auto max-h-full w-auto max-w-full rounded-lg object-contain"
                   style={mediaStyle}
+                  src={videoObjectUrl ?? item.mediaSrc}
                   controls
                   autoPlay
                   muted={!isSoundEnabled}
                   playsInline
                   preload="metadata"
+                  onLoadedData={() => {
+                    setIsVideoLoading(false);
+                  }}
                   onVolumeChange={(event) => {
                     const target = event.currentTarget;
                     const hasSound = !target.muted && target.volume > 0;
@@ -623,6 +640,7 @@ export function MediaViewerModal({
                   }}
                 >
                   <source src={videoObjectUrl ?? item.mediaSrc} type={videoMimeType} />
+                  <source src={videoObjectUrl ?? item.mediaSrc} />
                 </video>
 
                 {/* {videoLoadError ? (

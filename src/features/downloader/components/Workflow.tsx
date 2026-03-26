@@ -21,9 +21,12 @@ import {
   validateBaseZipArchive,
   type DownloadRateLimitSettings,
   type DownloadProgressPayload,
+  type ImageOutputFormat,
+  type ImageQuality,
   type ThumbnailQuality,
   type ProcessErrorCode,
   type ProcessProgressPayload,
+  type VideoProfile,
 } from "@/lib/memories-api";
 
 type ImportState = "idle" | "validating" | "running";
@@ -50,6 +53,21 @@ function loadRateLimitSettings(): DownloadRateLimitSettings | undefined {
 function loadThumbnailQualitySetting(): ThumbnailQuality {
   const settings = readAppSettings();
   return settings.thumbnailQuality;
+}
+
+type ProcessingFormatSettings = {
+  videoProfile: VideoProfile;
+  imageOutputFormat: ImageOutputFormat;
+  imageQuality: ImageQuality;
+};
+
+function loadProcessingFormatSettings(): ProcessingFormatSettings {
+  const settings = readAppSettings();
+  return {
+    videoProfile: settings.videoProfile,
+    imageOutputFormat: settings.imageOutputFormat,
+    imageQuality: settings.imageQuality,
+  };
 }
 
 export function Workflow() {
@@ -567,8 +585,12 @@ export function Workflow() {
       }
 
       const thumbnailQuality = loadThumbnailQualitySetting();
+      const processingFormatSettings = loadProcessingFormatSettings();
       pushLogLine(
         `[${new Date().toISOString().slice(0, 10)}] Thumbnail quality set to ${thumbnailQuality}`,
+      );
+      pushLogLine(
+        `[${new Date().toISOString().slice(0, 10)}] Video profile=${processingFormatSettings.videoProfile}, image format=${processingFormatSettings.imageOutputFormat}, image quality=${processingFormatSettings.imageQuality}`,
       );
 
       setNotice(t("downloader.workflow.status.processing"));
@@ -577,6 +599,9 @@ export function Workflow() {
         ".raw_cache",
         false,
         thumbnailQuality,
+        processingFormatSettings.videoProfile,
+        processingFormatSettings.imageOutputFormat,
+        processingFormatSettings.imageQuality,
       );
       setNotice(
         t("downloader.workflow.status.processed", {
