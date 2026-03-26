@@ -6,6 +6,8 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use tauri::{Emitter, Manager};
 
+const VIEWER_ARCHIVE_MANIFEST_NAME: &str = "viewer_manifest.json";
+
 const MAX_PERSISTED_RETRY_ATTEMPTS: i64 = 3;
 const PROCESS_PROGRESS_EVENT: &str = "process-progress";
 const SESSION_LOG_EVENT: &str = "session-log";
@@ -59,6 +61,28 @@ struct ImportMemoriesResult {
 struct ProcessMemoriesResult {
     processed_count: usize,
     failed_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveCreationResult {
+    archive_path: String,
+    added_files: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewerArchiveImportResult {
+    imported_count: usize,
+    skipped_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewerArchiveManifest {
+    archive_type: String,
+    version: u8,
+    created_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -2613,6 +2637,616 @@ fn path_to_relative_string(path: &std::path::Path, root: &std::path::Path) -> Re
     Ok(relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
+fn media_file_extension_allowed(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png" | "webp" | "mp4" | "mov" | "m4v" | "webm"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn collect_media_files_recursive(root: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut directories = vec![root.to_path_buf()];
+
+    while let Some(current) = directories.pop() {
+        for entry in std::fs::read_dir(&current)
+            .map_err(|error| format!("failed to read directory '{}': {error}", current.display()))?
+        {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "failed to read directory entry in '{}': {error}",
+                    current.display()
+                )
+            })?;
+
+            let path = entry.path();
+            if path.is_dir() {
+                let should_skip = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name == ".thumbnails" || name == ".staging");
+
+                if !should_skip {
+                    directories.push(path);
+                }
+
+                continue;
+            }
+
+            if media_file_extension_allowed(&path) {
+                files.push(path);
+            }
+        }
+    }
+
+    files.sort();
+    Ok(files)
+}
+
+fn collect_files_recursive(root: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut directories = vec![root.to_path_buf()];
+
+    while let Some(current) = directories.pop() {
+        for entry in std::fs::read_dir(&current)
+            .map_err(|error| format!("failed to read directory '{}': {error}", current.display()))?
+        {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "failed to read directory entry in '{}': {error}",
+                    current.display()
+                )
+            })?;
+
+            let path = entry.path();
+            if path.is_dir() {
+                directories.push(path);
+                continue;
+            }
+
+            files.push(path);
+        }
+    }
+
+    files.sort();
+    Ok(files)
+}
+
+fn zip_entry_name(relative_path: &std::path::Path) -> String {
+    relative_path
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+fn write_file_to_zip(
+    writer: &mut zip::ZipWriter<std::fs::File>,
+    source_path: &std::path::Path,
+    entry_name: &str,
+    options: zip::write::SimpleFileOptions,
+) -> Result<(), String> {
+    let mut source_file = std::fs::File::open(source_path)
+        .map_err(|error| format!("failed to open '{}' for zip write: {error}", source_path.display()))?;
+
+    writer
+        .start_file(entry_name, options)
+        .map_err(|error| format!("failed to start zip entry '{entry_name}': {error}"))?;
+
+    std::io::copy(&mut source_file, writer)
+        .map_err(|error| format!("failed to copy '{}' into zip: {error}", source_path.display()))?;
+
+    Ok(())
+}
+
+fn extract_zip_archive(zip_path: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    let archive_file = std::fs::File::open(zip_path)
+        .map_err(|error| format!("failed to open archive '{}': {error}", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(archive_file)
+        .map_err(|error| format!("failed to read archive '{}': {error}", zip_path.display()))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("failed to read zip entry at index {index}: {error}"))?;
+
+        let Some(safe_name) = entry.enclosed_name().map(|value| value.to_path_buf()) else {
+            continue;
+        };
+
+        let output_path = destination.join(safe_name);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&output_path).map_err(|error| {
+                format!(
+                    "failed to create extracted directory '{}': {error}",
+                    output_path.display()
+                )
+            })?;
+            continue;
+        }
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "failed to create extracted parent directory '{}': {error}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let mut output_file = std::fs::File::create(&output_path).map_err(|error| {
+            format!(
+                "failed to create extracted file '{}': {error}",
+                output_path.display()
+            )
+        })?;
+
+        std::io::copy(&mut entry, &mut output_file).map_err(|error| {
+            format!(
+                "failed to extract zip entry to '{}': {error}",
+                output_path.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn compute_blake3_hash(path: &std::path::Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| format!("failed to open '{}' for hashing: {error}", path.display()))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 16 * 1024];
+
+    loop {
+        let read_count = std::io::Read::read(&mut file, &mut buffer)
+            .map_err(|error| format!("failed to read '{}' for hashing: {error}", path.display()))?;
+
+        if read_count == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..read_count]);
+    }
+
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+#[tauri::command]
+async fn create_settings_media_backup_zip(
+    app: tauri::AppHandle,
+    archive_path: String,
+) -> Result<ArchiveCreationResult, String> {
+    let output_dir = resolve_output_dir(&app, ".raw_cache")?;
+    let media_files = collect_media_files_recursive(&output_dir)?;
+    let archive_path = std::path::PathBuf::from(&archive_path);
+
+    if let Some(parent) = archive_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create archive parent directory '{}': {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let archive_file = std::fs::File::create(&archive_path).map_err(|error| {
+        format!(
+            "failed to create backup archive '{}': {error}",
+            archive_path.display()
+        )
+    })?;
+    let mut writer = zip::ZipWriter::new(archive_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(9));
+
+    for media_file in &media_files {
+        let relative_path = media_file.strip_prefix(&output_dir).map_err(|error| {
+            format!(
+                "failed to build relative backup path for '{}': {error}",
+                media_file.display()
+            )
+        })?;
+
+        let entry_name = format!("media/{}", zip_entry_name(relative_path));
+        write_file_to_zip(&mut writer, media_file, &entry_name, options)?;
+    }
+
+    writer
+        .finish()
+        .map_err(|error| format!("failed to finish backup archive '{}': {error}", archive_path.display()))?;
+
+    Ok(ArchiveCreationResult {
+        archive_path: archive_path.to_string_lossy().to_string(),
+        added_files: media_files.len(),
+    })
+}
+
+#[tauri::command]
+async fn create_viewer_export_zip(
+    app: tauri::AppHandle,
+    archive_path: String,
+) -> Result<ArchiveCreationResult, String> {
+    let output_dir = resolve_output_dir(&app, ".raw_cache")?;
+    let media_files = collect_media_files_recursive(&output_dir)?;
+    let thumbnails_dir = output_dir.join(".thumbnails");
+    let thumbnail_files = collect_files_recursive(&thumbnails_dir)?;
+
+    let mut db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?;
+    db_path.push("memories.db");
+
+    if !db_path.exists() {
+        return Err(format!(
+            "viewer export database file not found at '{}'",
+            db_path.display()
+        ));
+    }
+
+    let archive_path = std::path::PathBuf::from(&archive_path);
+    if let Some(parent) = archive_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create archive parent directory '{}': {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let archive_file = std::fs::File::create(&archive_path).map_err(|error| {
+        format!(
+            "failed to create viewer export archive '{}': {error}",
+            archive_path.display()
+        )
+    })?;
+    let mut writer = zip::ZipWriter::new(archive_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(9));
+
+    let manifest = ViewerArchiveManifest {
+        archive_type: "viewer-export".to_string(),
+        version: 1,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let manifest_payload = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| format!("failed to serialize viewer archive manifest: {error}"))?;
+
+    writer
+        .start_file(VIEWER_ARCHIVE_MANIFEST_NAME, options)
+        .map_err(|error| format!("failed to create viewer manifest entry: {error}"))?;
+    std::io::Write::write_all(&mut writer, &manifest_payload)
+        .map_err(|error| format!("failed to write viewer manifest entry: {error}"))?;
+
+    write_file_to_zip(&mut writer, &db_path, "db/memories.db", options)?;
+
+    for thumbnail_file in &thumbnail_files {
+        let relative_path = thumbnail_file.strip_prefix(&thumbnails_dir).map_err(|error| {
+            format!(
+                "failed to build relative thumbnail path for '{}': {error}",
+                thumbnail_file.display()
+            )
+        })?;
+        let entry_name = format!("thumbnails/{}", zip_entry_name(relative_path));
+        write_file_to_zip(&mut writer, thumbnail_file, &entry_name, options)?;
+    }
+
+    for media_file in &media_files {
+        let relative_path = media_file.strip_prefix(&output_dir).map_err(|error| {
+            format!(
+                "failed to build relative media path for '{}': {error}",
+                media_file.display()
+            )
+        })?;
+        let entry_name = format!("media/{}", zip_entry_name(relative_path));
+        write_file_to_zip(&mut writer, media_file, &entry_name, options)?;
+    }
+
+    writer
+        .finish()
+        .map_err(|error| format!("failed to finish viewer archive '{}': {error}", archive_path.display()))?;
+
+    Ok(ArchiveCreationResult {
+        archive_path: archive_path.to_string_lossy().to_string(),
+        added_files: media_files.len() + thumbnail_files.len() + 2,
+    })
+}
+
+#[tauri::command]
+async fn import_viewer_export_zip(
+    app: tauri::AppHandle,
+    archive_path: String,
+) -> Result<ViewerArchiveImportResult, String> {
+    let archive_path = std::path::PathBuf::from(&archive_path);
+    if !archive_path.exists() {
+        return Err(format!("archive '{}' does not exist", archive_path.display()));
+    }
+
+    let import_root = std::env::temp_dir().join(format!(
+        "memorysnaper-viewer-import-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    std::fs::create_dir_all(&import_root).map_err(|error| {
+        format!(
+            "failed to create temporary import directory '{}': {error}",
+            import_root.display()
+        )
+    })?;
+
+    let result = async {
+        extract_zip_archive(&archive_path, &import_root)?;
+
+        let manifest_path = import_root.join(VIEWER_ARCHIVE_MANIFEST_NAME);
+        let manifest_payload = std::fs::read_to_string(&manifest_path).map_err(|error| {
+            format!(
+                "failed to read viewer archive manifest '{}': {error}",
+                manifest_path.display()
+            )
+        })?;
+        let manifest: ViewerArchiveManifest = serde_json::from_str(&manifest_payload)
+            .map_err(|error| format!("failed to parse viewer archive manifest: {error}"))?;
+
+        if manifest.archive_type != "viewer-export" {
+            return Err(format!(
+                "unsupported archive type '{}'; expected 'viewer-export'",
+                manifest.archive_type
+            ));
+        }
+
+        let source_db_path = import_root.join("db").join("memories.db");
+        if !source_db_path.exists() {
+            return Err(format!(
+                "viewer import archive is missing database file at '{}'",
+                source_db_path.display()
+            ));
+        }
+
+        let source_media_dir = import_root.join("media");
+        let source_thumbnail_dir = import_root.join("thumbnails");
+
+        let source_db_url = format!("sqlite://{}", source_db_path.to_string_lossy());
+        let target_db_url = memories_db_url(&app)?;
+
+        let source_pool = sqlx::SqlitePool::connect(&source_db_url)
+            .await
+            .map_err(|error| format!("failed to connect to source viewer database: {error}"))?;
+        let target_pool = sqlx::SqlitePool::connect(&target_db_url)
+            .await
+            .map_err(|error| format!("failed to connect to target viewer database: {error}"))?;
+
+        let existing_hash_rows = sqlx::query(
+            "SELECT content_hash FROM Memories WHERE content_hash IS NOT NULL AND TRIM(content_hash) != ''",
+        )
+        .fetch_all(&target_pool)
+        .await
+        .map_err(|error| format!("failed to load existing memory hashes: {error}"))?;
+
+        let mut known_hashes = existing_hash_rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<String, _>("content_hash").ok())
+            .collect::<std::collections::HashSet<_>>();
+
+        let source_rows = sqlx::query(
+            "
+            SELECT
+                mi.id AS source_memory_item_id,
+                COALESCE(mi.date_time, mi.date) AS date_taken,
+                mi.location AS location_raw,
+                mi.location_resolved AS location_resolved,
+                m.mid AS source_mid,
+                m.content_hash AS source_content_hash
+            FROM MemoryItem mi
+            LEFT JOIN MediaChunks mc
+              ON mc.url = mi.media_url
+             AND IFNULL(mc.overlay_url, '') = IFNULL(mi.overlay_url, '')
+             AND mc.order_index = 1
+            LEFT JOIN Memories m
+              ON m.id = mc.memory_id
+            WHERE mi.status = 'processed'
+            ORDER BY mi.id ASC
+            ",
+        )
+        .fetch_all(&source_pool)
+        .await
+        .map_err(|error| format!("failed to load source viewer records: {error}"))?;
+
+        let output_dir = resolve_output_dir(&app, ".raw_cache")?;
+        let thumbnail_dir = output_dir.join(".thumbnails");
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|error| format!("failed to create output directory '{}': {error}", output_dir.display()))?;
+        std::fs::create_dir_all(&thumbnail_dir).map_err(|error| {
+            format!(
+                "failed to create thumbnail directory '{}': {error}",
+                thumbnail_dir.display()
+            )
+        })?;
+
+        let mut imported_count = 0usize;
+        let mut skipped_count = 0usize;
+
+        for row in source_rows {
+            let source_memory_item_id = row.get::<i64, _>("source_memory_item_id");
+            let date_taken = row.get::<String, _>("date_taken");
+            let location_raw = row.try_get::<Option<String>, _>("location_raw").ok().flatten();
+            let location_resolved = row
+                .try_get::<Option<String>, _>("location_resolved")
+                .ok()
+                .flatten();
+            let source_mid = row.try_get::<Option<String>, _>("source_mid").ok().flatten();
+
+            let Some(source_media_path) = find_output_file_for_memory_item_recursive(
+                &source_media_dir,
+                source_memory_item_id,
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to locate source media for item {}: {error}",
+                    source_memory_item_id
+                )
+            })?
+            else {
+                skipped_count += 1;
+                continue;
+            };
+
+            let source_thumbnail_path = source_thumbnail_dir.join(format!("{source_memory_item_id}.webp"));
+            if !source_thumbnail_path.exists() {
+                skipped_count += 1;
+                continue;
+            }
+
+            let content_hash = match row.try_get::<Option<String>, _>("source_content_hash") {
+                Ok(Some(hash)) if !hash.trim().is_empty() => hash,
+                _ => compute_blake3_hash(&source_media_path)?,
+            };
+
+            if known_hashes.contains(&content_hash) {
+                skipped_count += 1;
+                continue;
+            }
+
+            let media_extension = source_media_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                .unwrap_or_else(|| "bin".to_string());
+
+            let insert_memory_item_result = sqlx::query(
+                "
+                INSERT INTO MemoryItem (
+                    date,
+                    location,
+                    media_url,
+                    overlay_url,
+                    status,
+                    retry_count,
+                    last_error_code,
+                    last_error_message,
+                    date_time,
+                    location_resolved
+                )
+                VALUES (?1, ?2, ?3, NULL, 'processed', 0, NULL, NULL, ?4, ?5)
+                ",
+            )
+            .bind(&date_taken)
+            .bind(&location_raw)
+            .bind(format!("viewer-import://{source_memory_item_id}"))
+            .bind(&date_taken)
+            .bind(&location_resolved)
+            .execute(&target_pool)
+            .await
+            .map_err(|error| format!("failed to insert imported MemoryItem row: {error}"))?;
+
+            let new_memory_item_id = insert_memory_item_result.last_insert_rowid();
+            let target_media_path = output_dir.join(format!("{new_memory_item_id}.{media_extension}"));
+            let target_thumbnail_path = thumbnail_dir.join(format!("{new_memory_item_id}.webp"));
+
+            std::fs::copy(&source_media_path, &target_media_path).map_err(|error| {
+                format!(
+                    "failed to copy imported media '{}' to '{}': {error}",
+                    source_media_path.display(),
+                    target_media_path.display()
+                )
+            })?;
+            std::fs::copy(&source_thumbnail_path, &target_thumbnail_path).map_err(|error| {
+                format!(
+                    "failed to copy imported thumbnail '{}' to '{}': {error}",
+                    source_thumbnail_path.display(),
+                    target_thumbnail_path.display()
+                )
+            })?;
+
+            let relative_media_path = target_media_path
+                .strip_prefix(&output_dir)
+                .map_err(|error| {
+                    format!(
+                        "failed to compute imported media relative path for '{}': {error}",
+                        target_media_path.display()
+                    )
+                })?
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            let relative_thumbnail_path = format!(".thumbnails/{new_memory_item_id}.webp");
+            let memory_hash = format!("import:{content_hash}");
+
+            let insert_memories_result = sqlx::query(
+                "
+                INSERT INTO Memories (
+                    hash,
+                    date,
+                    status,
+                    job_id,
+                    mid,
+                    content_hash,
+                    relative_path,
+                    thumbnail_path
+                )
+                VALUES (?1, ?2, 'PROCESSED', NULL, ?3, ?4, ?5, ?6)
+                ",
+            )
+            .bind(&memory_hash)
+            .bind(&date_taken)
+            .bind(&source_mid)
+            .bind(&content_hash)
+            .bind(&relative_media_path)
+            .bind(&relative_thumbnail_path)
+            .execute(&target_pool)
+            .await
+            .map_err(|error| format!("failed to insert imported Memories row: {error}"))?;
+
+            let new_memory_group_id = insert_memories_result.last_insert_rowid();
+
+            sqlx::query(
+                "
+                INSERT INTO MediaChunks (memory_id, url, overlay_url, order_index)
+                VALUES (?1, ?2, NULL, 1)
+                ",
+            )
+            .bind(new_memory_group_id)
+            .bind(format!("viewer-import://{new_memory_item_id}"))
+            .execute(&target_pool)
+            .await
+            .map_err(|error| format!("failed to insert imported MediaChunks row: {error}"))?;
+
+            known_hashes.insert(content_hash);
+            imported_count += 1;
+        }
+
+        source_pool.close().await;
+        target_pool.close().await;
+
+        Ok(ViewerArchiveImportResult {
+            imported_count,
+            skipped_count,
+        })
+    }
+    .await;
+
+    if let Err(error) = std::fs::remove_dir_all(&import_root) {
+        eprintln!(
+            "[viewer-import] failed to remove temp import directory '{}': {}",
+            import_root.display(),
+            error
+        );
+    }
+
+    result
+}
+
 fn extract_extension_from_url(url: &str, fallback: &str) -> String {
     url.rsplit_once('.')
         .map(|(_, ext)| ext)
@@ -2804,6 +3438,9 @@ pub fn run() {
             process_downloaded_memories,
             get_thumbnails,
             get_viewer_items,
+            create_settings_media_backup_zip,
+            create_viewer_export_zip,
+            import_viewer_export_zip,
             reset_all_app_data
         ])
         .run(tauri::generate_context!())

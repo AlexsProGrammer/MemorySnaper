@@ -54,6 +54,20 @@ const enMessages = {
   "settings.form.reset.confirm":
     "This will permanently delete all app-managed media data and reset the local database. Continue?",
   "settings.form.reset.error": "Reset failed. Please try again.",
+  "settings.form.backup.button": "Create media backup ZIP",
+  "settings.form.backup.inProgress": "Creating backup ZIP...",
+  "settings.form.backup.description":
+    "Creates a highly compressed backup archive with only images/videos (no thumbnails, no database).",
+  "settings.form.backup.saveDialogTitle": "Save media backup ZIP",
+  "settings.form.backup.success": "Backup created successfully with {count} files.",
+  "settings.form.backup.error": "Backup creation failed. Please try again.",
+  "settings.form.viewerExport.button": "Export viewer archive",
+  "settings.form.viewerExport.inProgress": "Creating viewer export...",
+  "settings.form.viewerExport.description":
+    "Exports a viewer archive containing SQL database, thumbnails, and media files.",
+  "settings.form.viewerExport.saveDialogTitle": "Save viewer export ZIP",
+  "settings.form.viewerExport.success": "Viewer export created with {count} files.",
+  "settings.form.viewerExport.error": "Viewer export failed. Please try again.",
   "settings.form.startupPage": "Startup page",
   "settings.form.startupPage.system": "System (dynamic)",
   "settings.form.startupPage.downloader": "Downloader",
@@ -110,6 +124,18 @@ const enMessages = {
     "A downloaded source file is missing and cannot be processed.",
   "downloader.workflow.error.process.PROCESSING_FAILED":
     "Media processing failed for one or more files.",
+  "downloader.workflow.viewerImport.label": "Import",
+  "downloader.workflow.viewerImport.button": "Import Viewer Archive",
+  "downloader.workflow.viewerImport.inProgress": "Importing...",
+  "downloader.workflow.viewerImport.description":
+    "Import a viewer export archive (DB + thumbnails + media).",
+  "downloader.workflow.viewerImport.disabledReason":
+    "Clear ZIP selection first to import a viewer archive.",
+  "downloader.workflow.viewerImport.success":
+    "Viewer import complete. Added {importedCount} items, skipped {skippedCount} duplicates.",
+  "downloader.workflow.viewerImport.error": "Viewer import failed. Please try again.",
+  "downloader.workflow.viewerImport.wrongArchiveType":
+    "This is not a viewer export archive. Select a ZIP exported from the Viewer tab.",
 
   "viewer.card.title": "Viewer",
   "viewer.card.description": "Browse generated thumbnails in a virtualized grid.",
@@ -117,6 +143,17 @@ const enMessages = {
   "viewer.status.loaded": "Loaded {count} thumbnails.",
   "viewer.status.empty": "No thumbnails available yet.",
   "viewer.status.loadFailed": "Could not load thumbnails.",
+  "viewer.import.button": "Import Viewer Archive",
+  "viewer.import.inProgress": "Importing...",
+  "viewer.import.success": "Import complete: {importedCount} added, {skippedCount} skipped.",
+  "viewer.import.error": "Viewer import failed.",
+  "viewer.import.wrongArchiveType":
+    "This is not a viewer export archive. Select a ZIP exported from the Viewer tab.",
+  "viewer.export.button": "Export Viewer Archive",
+  "viewer.export.inProgress": "Exporting...",
+  "viewer.export.success": "Viewer export created with {count} files.",
+  "viewer.export.error": "Viewer export failed.",
+  "viewer.export.saveDialogTitle": "Save viewer export ZIP",
   "viewer.grid.thumbnailAlt": "Thumbnail {id}",
   "viewer.grid.openMedia": "Open media {id}",
   "viewer.modal.title": "Media viewer",
@@ -208,6 +245,20 @@ const deMessages: Record<TranslationKey, string> = {
   "settings.form.reset.confirm":
     "Dadurch werden alle App-verwalteten Mediendaten dauerhaft gelöscht und die lokale Datenbank zurückgesetzt. Fortfahren?",
   "settings.form.reset.error": "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
+  "settings.form.backup.button": "Medien-Backup-ZIP erstellen",
+  "settings.form.backup.inProgress": "Backup-ZIP wird erstellt...",
+  "settings.form.backup.description":
+    "Erstellt ein stark komprimiertes Backup nur mit Bildern/Videos (ohne Vorschaubilder, ohne Datenbank).",
+  "settings.form.backup.saveDialogTitle": "Medien-Backup-ZIP speichern",
+  "settings.form.backup.success": "Backup mit {count} Dateien erfolgreich erstellt.",
+  "settings.form.backup.error": "Backup-Erstellung fehlgeschlagen. Bitte erneut versuchen.",
+  "settings.form.viewerExport.button": "Viewer-Archiv exportieren",
+  "settings.form.viewerExport.inProgress": "Viewer-Export wird erstellt...",
+  "settings.form.viewerExport.description":
+    "Exportiert ein Viewer-Archiv mit SQL-Datenbank, Vorschaubildern und Mediendateien.",
+  "settings.form.viewerExport.saveDialogTitle": "Viewer-Export-ZIP speichern",
+  "settings.form.viewerExport.success": "Viewer-Export mit {count} Dateien erstellt.",
+  "settings.form.viewerExport.error": "Viewer-Export fehlgeschlagen. Bitte erneut versuchen.",
   "settings.form.startupPage": "Startseite",
   "settings.form.startupPage.system": "System (dynamisch)",
   "settings.form.startupPage.downloader": "Downloader",
@@ -269,6 +320,18 @@ const deMessages: Record<TranslationKey, string> = {
     "Eine heruntergeladene Quelldatei fehlt und kann nicht verarbeitet werden.",
   "downloader.workflow.error.process.PROCESSING_FAILED":
     "Die Medienverarbeitung ist für eine oder mehrere Dateien fehlgeschlagen.",
+  "downloader.workflow.viewerImport.label": "Import",
+  "downloader.workflow.viewerImport.button": "Viewer-Archiv importieren",
+  "downloader.workflow.viewerImport.inProgress": "Import läuft...",
+  "downloader.workflow.viewerImport.description":
+    "Importiert ein Viewer-Export-Archiv (DB + Vorschaubilder + Medien).",
+  "downloader.workflow.viewerImport.disabledReason":
+    "Lösche zuerst die ZIP-Auswahl, um ein Viewer-Archiv zu importieren.",
+  "downloader.workflow.viewerImport.success":
+    "Viewer-Import abgeschlossen. {importedCount} hinzugefügt, {skippedCount} Duplikate übersprungen.",
+  "downloader.workflow.viewerImport.error": "Viewer-Import fehlgeschlagen. Bitte erneut versuchen.",
+  "downloader.workflow.viewerImport.wrongArchiveType":
+    "Kein Viewer-Export-Archiv. Bitte eine ZIP-Datei auswählen, die über den Betrachter-Tab exportiert wurde.",
 
   "viewer.card.title": "Betrachter",
   "viewer.card.description": "Erstellte Vorschaubilder in einem virtualisierten Raster durchsuchen.",
@@ -276,6 +339,17 @@ const deMessages: Record<TranslationKey, string> = {
   "viewer.status.loaded": "{count} Vorschaubilder geladen.",
   "viewer.status.empty": "Noch keine Vorschaubilder verfügbar.",
   "viewer.status.loadFailed": "Vorschaubilder konnten nicht geladen werden.",
+  "viewer.import.button": "Viewer-Archiv importieren",
+  "viewer.import.inProgress": "Import läuft...",
+  "viewer.import.success": "Import abgeschlossen: {importedCount} hinzugefügt, {skippedCount} übersprungen.",
+  "viewer.import.error": "Viewer-Import fehlgeschlagen.",
+  "viewer.import.wrongArchiveType":
+    "Kein Viewer-Export-Archiv. Bitte eine ZIP-Datei auswählen, die über den Betrachter-Tab exportiert wurde.",
+  "viewer.export.button": "Viewer-Archiv exportieren",
+  "viewer.export.inProgress": "Export läuft...",
+  "viewer.export.success": "Viewer-Export mit {count} Dateien erstellt.",
+  "viewer.export.error": "Viewer-Export fehlgeschlagen.",
+  "viewer.export.saveDialogTitle": "Viewer-Export-ZIP speichern",
   "viewer.grid.thumbnailAlt": "Vorschaubild {id}",
   "viewer.grid.openMedia": "Medium {id} öffnen",
   "viewer.modal.title": "Medienanzeige",

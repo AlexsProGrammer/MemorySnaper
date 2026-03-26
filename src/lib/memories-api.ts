@@ -101,6 +101,16 @@ export type SessionLogPayload = {
   message: string;
 };
 
+export type ArchiveCreationResult = {
+  archivePath: string;
+  addedFiles: number;
+};
+
+export type ViewerArchiveImportResult = {
+  importedCount: number;
+  skippedCount: number;
+};
+
 export async function importMemoriesJson(
   jsonContent: string,
 ): Promise<ImportMemoriesResult> {
@@ -235,6 +245,24 @@ export async function getViewerItems(
 
 export async function resetAllAppData(): Promise<void> {
   return invoke<void>("reset_all_app_data");
+}
+
+export async function createSettingsMediaBackupZip(
+  archivePath: string,
+): Promise<ArchiveCreationResult> {
+  return invoke<ArchiveCreationResult>("create_settings_media_backup_zip", { archivePath });
+}
+
+export async function createViewerExportZip(
+  archivePath: string,
+): Promise<ArchiveCreationResult> {
+  return invoke<ArchiveCreationResult>("create_viewer_export_zip", { archivePath });
+}
+
+export async function importViewerExportZip(
+  archivePath: string,
+): Promise<ViewerArchiveImportResult> {
+  return invoke<ViewerArchiveImportResult>("import_viewer_export_zip", { archivePath });
 }
 
 export async function onDownloadProgress(

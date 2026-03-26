@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useTheme } from "next-themes";
+import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import {
   clearPersistedAppClientState,
@@ -20,7 +21,11 @@ import {
 } from "@/lib/app-settings";
 import { parseLanguagePreference, type LanguagePreference } from "@/lib/language";
 import { useI18n } from "@/lib/i18n";
-import { resetAllAppData } from "@/lib/memories-api";
+import {
+  createSettingsMediaBackupZip,
+  createViewerExportZip,
+  resetAllAppData,
+} from "@/lib/memories-api";
 
 const REQUESTS_WARNING_THRESHOLD = 100;
 const CONCURRENCY_WARNING_THRESHOLD = 5;
@@ -140,6 +145,10 @@ export function SettingsForm() {
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
   const [isResettingAllData, setIsResettingAllData] = useState(false);
   const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
+  const [isCreatingBackup, setIsCreatingBackup] = useState(false);
+  const [isCreatingViewerExport, setIsCreatingViewerExport] = useState(false);
+  const [backupStatusMessage, setBackupStatusMessage] = useState<string | null>(null);
+  const [backupStatusTone, setBackupStatusTone] = useState<"neutral" | "error" | "success">("neutral");
 
   useEffect(() => {
     const settings = readAppSettings();
@@ -255,6 +264,72 @@ export function SettingsForm() {
     } catch {
       setResetErrorMessage(t("settings.form.reset.error"));
       setIsResettingAllData(false);
+    }
+  };
+
+  const onCreateBackupZip = async () => {
+    if (isCreatingBackup || isCreatingViewerExport) {
+      return;
+    }
+
+    setBackupStatusMessage(null);
+    setBackupStatusTone("neutral");
+    setIsCreatingBackup(true);
+
+    try {
+      const pickedPath = await save({
+        title: t("settings.form.backup.saveDialogTitle"),
+        defaultPath: "memorysnaper-media-backup.zip",
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      });
+
+      if (!pickedPath || typeof pickedPath !== "string") {
+        return;
+      }
+
+      const result = await createSettingsMediaBackupZip(pickedPath);
+      setBackupStatusTone("success");
+      setBackupStatusMessage(
+        t("settings.form.backup.success", { count: result.addedFiles }),
+      );
+    } catch {
+      setBackupStatusTone("error");
+      setBackupStatusMessage(t("settings.form.backup.error"));
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const onCreateViewerExport = async () => {
+    if (isCreatingViewerExport || isCreatingBackup) {
+      return;
+    }
+
+    setBackupStatusMessage(null);
+    setBackupStatusTone("neutral");
+    setIsCreatingViewerExport(true);
+
+    try {
+      const pickedPath = await save({
+        title: t("settings.form.viewerExport.saveDialogTitle"),
+        defaultPath: "memorysnaper-viewer-export.zip",
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      });
+
+      if (!pickedPath || typeof pickedPath !== "string") {
+        return;
+      }
+
+      const result = await createViewerExportZip(pickedPath);
+      setBackupStatusTone("success");
+      setBackupStatusMessage(
+        t("settings.form.viewerExport.success", { count: result.addedFiles }),
+      );
+    } catch {
+      setBackupStatusTone("error");
+      setBackupStatusMessage(t("settings.form.viewerExport.error"));
+    } finally {
+      setIsCreatingViewerExport(false);
     }
   };
 
@@ -473,6 +548,52 @@ export function SettingsForm() {
           {t("settings.form.warning")}
         </p>
       ) : null}
+
+      <div className="space-y-2 border-t border-border pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={isCreatingBackup || isCreatingViewerExport}
+          onClick={() => {
+            void onCreateBackupZip();
+          }}
+        >
+          {isCreatingBackup
+            ? t("settings.form.backup.inProgress")
+            : t("settings.form.backup.button")}
+        </Button>
+        <p className="text-xs text-muted-foreground">{t("settings.form.backup.description")}</p>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={isCreatingViewerExport || isCreatingBackup}
+          onClick={() => {
+            void onCreateViewerExport();
+          }}
+        >
+          {isCreatingViewerExport
+            ? t("settings.form.viewerExport.inProgress")
+            : t("settings.form.viewerExport.button")}
+        </Button>
+        <p className="text-xs text-muted-foreground">{t("settings.form.viewerExport.description")}</p>
+
+        {backupStatusMessage ? (
+          <p
+            className={`text-sm ${
+              backupStatusTone === "error"
+                ? "text-red-600"
+                : backupStatusTone === "success"
+                  ? "text-green-600"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {backupStatusMessage}
+          </p>
+        ) : null}
+      </div>
 
       <div className="space-y-2 border-t border-border pt-4">
         <Button

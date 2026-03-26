@@ -58,6 +58,7 @@ export function Grid({ items, onItemSelect }: GridProps) {
             return (
               <div
                 key={virtualRow.key}
+                data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
                 className="absolute left-0 top-0 grid w-full grid-cols-2 gap-2 p-2 sm:grid-cols-4"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}

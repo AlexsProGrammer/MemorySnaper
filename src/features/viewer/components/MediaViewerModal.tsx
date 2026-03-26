@@ -663,12 +663,7 @@ export function MediaViewerModal({
                   <source src={videoObjectUrl ?? item.mediaSrc} type={videoMimeType} />
                   <source src={videoObjectUrl ?? item.mediaSrc} />
                 </video>
-
-                {/* {videoLoadError ? (
-                  <p className="max-w-3xl text-center text-xs text-white/85">
-                    {t("viewer.modal.videoUnsupported")}
-                  </p>
-                ) : null} */}
+                
               </div>
             ) : (
               <img

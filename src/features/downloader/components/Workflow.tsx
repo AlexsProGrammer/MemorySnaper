@@ -9,6 +9,7 @@ import {
   finalizeZipSession,
   getProcessingSessionOverview,
   importMemoriesFromZip,
+  importViewerExportZip,
   initializeZipSession,
   type DownloadErrorCode,
   onDownloadProgress,
@@ -93,6 +94,7 @@ export function Workflow() {
   const [downloadProgress, setDownloadProgress] = useState<RuntimeProgress | null>(null);
   const [processProgress, setProcessProgress] = useState<RuntimeProgress | null>(null);
   const [storageHydrated, setStorageHydrated] = useState(false);
+  const [isImportingViewerArchive, setIsImportingViewerArchive] = useState(false);
 
   useEffect(() => {
     try {
@@ -412,6 +414,7 @@ export function Workflow() {
   const isWorking = importState !== "idle";
   const canStart = selectedZipPaths.length > 0 && (!isWorking || isStopped);
   const canPauseOrStop = isWorking && !isStopped;
+  const isViewerImportBlockedByZipSelection = selectedZipPaths.length > 0;
 
   type ZipSelection = {
     uuid: string;
@@ -521,6 +524,45 @@ export function Workflow() {
     } catch (error) {
       console.error("[downloader] Failed to open ZIP picker", error);
       setNotice("Could not open file picker. Please restart the app and try again.", "error");
+    }
+  };
+
+  const onImportViewerArchive = async () => {
+    if (isImportingViewerArchive || isViewerImportBlockedByZipSelection || isWorking) {
+      return;
+    }
+
+    try {
+      setIsImportingViewerArchive(true);
+      const picked = await open({
+        multiple: false,
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      });
+
+      if (!picked || typeof picked !== "string") {
+        return;
+      }
+
+      const result = await importViewerExportZip(picked);
+      setNotice(
+        t("downloader.workflow.viewerImport.success", {
+          importedCount: result.importedCount,
+          skippedCount: result.skippedCount,
+        }),
+        "success",
+      );
+    } catch (error: unknown) {
+      const msg = typeof error === "string" ? error : "";
+      const isWrongType =
+        msg.includes("unsupported archive type") || msg.includes("manifest");
+      setNotice(
+        isWrongType
+          ? t("downloader.workflow.viewerImport.wrongArchiveType")
+          : t("downloader.workflow.viewerImport.error"),
+        "error",
+      );
+    } finally {
+      setIsImportingViewerArchive(false);
     }
   };
 
@@ -695,6 +737,33 @@ export function Workflow() {
         </p>
 
         <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="min-w-28 text-xs text-muted-foreground">
+              {t("downloader.workflow.viewerImport.label")}
+            </span>
+            <span className="flex-1 truncate text-sm text-muted-foreground">
+              {isViewerImportBlockedByZipSelection
+                ? t("downloader.workflow.viewerImport.disabledReason")
+                : t("downloader.workflow.viewerImport.description")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                void onImportViewerArchive();
+              }}
+              disabled={
+                isImportingViewerArchive ||
+                isViewerImportBlockedByZipSelection ||
+                isWorking
+              }
+            >
+              {isImportingViewerArchive
+                ? t("downloader.workflow.viewerImport.inProgress")
+                : t("downloader.workflow.viewerImport.button")}
+            </Button>
+          </div>
+
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <span className="min-w-28 text-xs text-muted-foreground">ZIPs</span>
             <span className="flex-1 truncate text-sm">
