@@ -71,8 +71,8 @@ type TimelineRailMarker = {
 
 export const GRID_COLUMNS = 4;
 const ESTIMATED_MEDIA_ROW_HEIGHT = 220;
-const ESTIMATED_YEAR_ROW_HEIGHT = 60;
-const ESTIMATED_MONTH_ROW_HEIGHT = 52;
+const ESTIMATED_YEAR_ROW_HEIGHT = 40;
+const ESTIMATED_MONTH_ROW_HEIGHT = 32;
 const RAIL_NEARBY_YEAR_RANGE = 1;
 
 function getHeaderDisplayLabel(header: GridStickyHeader | null): string | null {
@@ -178,22 +178,10 @@ function StickyTimelineHeader({ header }: { header: GridStickyHeader }) {
   }
 
   return (
-    <div className="pointer-events-none sticky top-0 z-20 px-3 pt-3">
-      <div className="inline-flex max-w-full flex-col gap-1 rounded-xl border border-border/80 bg-background/92 px-3 py-2 shadow-lg backdrop-blur-sm">
-        {labels.map((label, index) => (
-          <span
-            key={`${header.variant}-${label}`}
-            className={cn(
-              "truncate leading-none",
-              index === 0
-                ? "text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
-                : "text-sm font-semibold text-foreground",
-            )}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
+    <div className="pointer-events-none sticky top-0 z-20 px-3 pt-1.5 pb-0.5">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-background/90 px-2.5 py-0.5 text-[11px] font-medium tracking-wide text-muted-foreground shadow-sm ring-1 ring-border/60 backdrop-blur-sm">
+        {labels.join(" · ")}
+      </span>
     </div>
   );
 }
@@ -496,10 +484,10 @@ export function Grid({ rows, onItemSelect }: GridProps) {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="relative h-full min-h-80 rounded-md border border-border">
+      <div className="relative h-full min-h-80 rounded-lg">
       <div
         ref={parentRef}
-        className="relative h-full overflow-auto rounded-md"
+        className="relative h-full overflow-auto rounded-lg"
         onScroll={(event) => {
           setScrollTop(event.currentTarget.scrollTop);
         }}
@@ -521,27 +509,26 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                   key={virtualRow.key}
                   data-index={virtualRow.index}
                   ref={rowVirtualizer.measureElement}
-                  className="absolute left-0 top-0 w-full px-3 py-2 pr-16"
+                  className="absolute left-0 top-0 w-full pr-16"
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
                   <div
                     className={cn(
-                      "rounded-xl border px-4 py-3 shadow-xs",
-                      row.kind === "year"
-                        ? "border-border/80 bg-muted/60"
-                        : "border-border/60 bg-background/80",
+                      "flex items-center gap-3 px-3",
+                      row.kind === "year" ? "py-2.5" : "py-1.5",
                     )}
                   >
                     <span
                       className={cn(
-                        "block truncate",
+                        "shrink-0 whitespace-nowrap",
                         row.kind === "year"
-                          ? "text-sm font-semibold uppercase tracking-[0.2em] text-foreground"
-                          : "text-sm font-medium text-muted-foreground",
+                          ? "text-xs font-semibold uppercase tracking-[0.15em] text-foreground"
+                          : "text-[11px] font-medium text-muted-foreground",
                       )}
                     >
                       {row.label}
                     </span>
+                    <span className="h-px flex-1 bg-border/60" />
                   </div>
                 </div>
               );
@@ -552,7 +539,7 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                 key={virtualRow.key}
                 data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 grid w-full grid-cols-2 gap-2 p-2 pr-16 sm:grid-cols-3 md:grid-cols-4"
+                className="absolute left-0 top-0 grid w-full grid-cols-2 gap-1.5 p-1.5 pr-14 sm:grid-cols-3 md:grid-cols-4"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {row.items.map((item) => {
@@ -567,7 +554,7 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                   return (
                     <Tooltip key={item.id}>
                       <TooltipTrigger asChild>
-                        <div className="relative aspect-9/16 overflow-hidden rounded-md border border-border bg-background">
+                        <div className="group/thumb relative aspect-9/16 overflow-hidden rounded-lg bg-muted/40 transition-shadow hover:shadow-md">
                           {item.src ? (
                             <button
                               type="button"
