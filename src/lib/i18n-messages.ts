@@ -191,6 +191,7 @@ const enMessages = {
   "downloader.actions.pause": "Pause",
   "downloader.actions.resume": "Resume",
   "downloader.actions.stop": "Stop",
+  "downloader.actions.clearSession": "Clear Session",
 
   "downloader.zipStatus.title": "ZIP Status",
   "downloader.zipStatus.empty": "No finished ZIP files yet.",
@@ -483,6 +484,7 @@ const deMessages: Record<TranslationKey, string> = {
   "downloader.actions.pause": "Pausieren",
   "downloader.actions.resume": "Fortsetzen",
   "downloader.actions.stop": "Stoppen",
+  "downloader.actions.clearSession": "Sitzung zurücksetzen",
 
   "downloader.zipStatus.title": "ZIP-Status",
   "downloader.zipStatus.empty": "Noch keine fertigen ZIP-Dateien.",

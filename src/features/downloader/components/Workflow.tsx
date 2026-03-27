@@ -401,6 +401,9 @@ export function Workflow() {
   const isWorking = importState !== "idle";
   const canStart = selectedZipPaths.length > 0 && (!isWorking || isStopped);
   const canPauseOrStop = isWorking && !isStopped;
+  const canClear =
+    (selectedZipPaths.length > 0 || jobId !== null || finishedZipFiles.length > 0 || logLines.length > 0) &&
+    (!isWorking || isStopped);
   const isViewerImportBlockedByZipSelection = selectedZipPaths.length > 0;
 
   type ZipSelection = {
@@ -808,9 +811,11 @@ export function Workflow() {
         isPaused={isPaused}
         isStopped={isStopped}
         isWorking={isWorking}
+        canClear={canClear}
         onStart={() => { void onStartSession(); }}
         onPauseOrResume={() => { void onPauseOrResume(); }}
         onStop={() => { void onStopSession(); }}
+        onClearSession={onRemoveSelection}
       />
 
       <Separator />

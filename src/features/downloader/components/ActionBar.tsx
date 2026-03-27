@@ -1,4 +1,4 @@
-import { Play, Pause, Square, Loader2 } from "lucide-react";
+import { Play, Pause, Square, Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -9,9 +9,11 @@ type ActionBarProps = {
   isPaused: boolean;
   isStopped: boolean;
   isWorking: boolean;
+  canClear: boolean;
   onStart: () => void;
   onPauseOrResume: () => void;
   onStop: () => void;
+  onClearSession: () => void;
 };
 
 export function ActionBar({
@@ -20,9 +22,11 @@ export function ActionBar({
   isPaused,
   isStopped,
   isWorking,
+  canClear,
   onStart,
   onPauseOrResume,
   onStop,
+  onClearSession,
 }: ActionBarProps) {
   const { t } = useI18n();
 
@@ -35,7 +39,7 @@ export function ActionBar({
         className="gap-2"
       >
         {isWorking && !isStopped ? (
-          <Loader2 className={`h-4 w-4 animate-spin ${isPaused ? "[animation-play-state:paused]" : ""}`} />
+          <Loader2 className={`h-4 w-4 animate-spin ${isPaused ? "paused" : ""}`} />
         ) : (
           <Play className="h-4 w-4" />
         )}
@@ -66,6 +70,18 @@ export function ActionBar({
       >
         <Square className="h-4 w-4" />
         {t("downloader.actions.stop")}
+      </Button>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onClearSession}
+        disabled={!canClear}
+        className="ml-auto gap-1.5 text-muted-foreground hover:text-destructive"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t("downloader.actions.clearSession")}
       </Button>
     </div>
   );
