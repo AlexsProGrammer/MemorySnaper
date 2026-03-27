@@ -155,6 +155,7 @@ const startupPageLabelKeys: Record<StartupPagePreference, TranslationKey> = {
 export function SettingsForm() {
   const { theme, setTheme } = useTheme();
   const { languagePreference, resolvedLocale, setLanguagePreference, t } = useI18n();
+  const [activeTab, setActiveTab] = useState("interface");
   const [requestsPerMinute, setRequestsPerMinute] = useState<number>(10);
   const [concurrentDownloads, setConcurrentDownloads] = useState<number>(3);
   const [startupPagePreference, setStartupPagePreference] = useState<StartupPagePreference>("system");
@@ -310,7 +311,7 @@ export function SettingsForm() {
   };
 
   return (
-    <Tabs defaultValue="interface" className="flex flex-col">
+    <Tabs defaultValue="interface" value={activeTab} onValueChange={setActiveTab} className="flex flex-col bg-background rounded-lg">
       <TabsList className="w-full justify-start overflow-x-auto">
         <TabsTrigger value="interface">{t("settings.form.section.interface")}</TabsTrigger>
         <TabsTrigger value="processing">{t("settings.form.section.processing")}</TabsTrigger>
@@ -320,7 +321,7 @@ export function SettingsForm() {
       </TabsList>
 
       {/* ── Interface ── */}
-      <TabsContent value="interface" className="space-y-6 pt-4">
+      <TabsContent value="interface" className="space-y-6 pt-4 pb-8">
         {/* Theme */}
         <div className="space-y-2">
           <Label className="text-sm font-medium">{t("settings.form.appearance")}</Label>
@@ -394,30 +395,32 @@ export function SettingsForm() {
         <Separator />
 
         {/* Accent Color */}
-        <div className="space-y-2">
-          <Label>{t("settings.form.accentColor")}</Label>
-          <div className="flex items-center gap-3">
-            {ACCENT_COLORS.map(({ value, swatch }) => (
-              <button
-                key={value}
-                type="button"
-                aria-label={t(accentLabelKeys[value])}
-                className={cn(
-                  "size-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                  swatch,
-                  accentColor === value
-                    ? "ring-2 ring-ring ring-offset-2 ring-offset-background scale-110"
-                    : "hover:scale-105",
-                )}
-                onClick={() => { onAccentColorChange(value); }}
-              />
-            ))}
+        {activeTab === "interface" && (
+          <div className="space-y-2">
+            <Label>{t("settings.form.accentColor")}</Label>
+            <div className="flex items-center gap-3 mr-12 ml-2">
+              {ACCENT_COLORS.map(({ value, swatch }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={t(accentLabelKeys[value])}
+                  className={cn(
+                    "size-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    swatch,
+                    accentColor === value
+                      ? "ring-2 ring-ring ring-offset-2 ring-offset-background scale-110"
+                      : "hover:scale-105",
+                  )}
+                  onClick={() => { onAccentColorChange(value); }}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </TabsContent>
 
       {/* ── Processing ── */}
-      <TabsContent value="processing" className="space-y-6 pt-4">
+      <TabsContent value="processing" className="space-y-6 pt-4 pb-8">
         <div className="space-y-2">
           <Label htmlFor="requests-per-minute">{t("settings.form.requestsPerMinute")}</Label>
           <Input
@@ -446,7 +449,7 @@ export function SettingsForm() {
       </TabsContent>
 
       {/* ── Media Output ── */}
-      <TabsContent value="media" className="space-y-6 pt-4">
+      <TabsContent value="media" className="space-y-6 pt-4 pb-8">
         <div className="space-y-2">
           <Label>{t("settings.form.thumbnailQuality")}</Label>
           <Select
@@ -525,7 +528,7 @@ export function SettingsForm() {
       </TabsContent>
 
       {/* ── Playback ── */}
-      <TabsContent value="playback" className="space-y-6 pt-4">
+      <TabsContent value="playback" className="space-y-6 pt-4 pb-8">
         <div className="flex items-center justify-between">
           <Label htmlFor="video-autoplay">{t("settings.form.videoAutoplay")}</Label>
           <Switch
@@ -565,7 +568,7 @@ export function SettingsForm() {
       </TabsContent>
 
       {/* ── Data ── */}
-      <TabsContent value="data" className="space-y-6 pt-4">
+      <TabsContent value="data" className="space-y-6 pt-4 pb-8">
         {/* Backup & Export */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">{t("settings.form.section.backupExport")}</Label>
