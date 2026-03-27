@@ -216,6 +216,49 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
     )
     .await?;
 
+    // Post-transcode integrity check for videos: verify codec and pixel format.
+    // If the chosen profile produces a broken output, retry with Mp4Compatible.
+    let final_media_path = if source_is_video {
+        let is_valid = media::verify_video_integrity(
+            &final_media_path,
+            input.video_output_profile,
+        )
+        .await
+        .unwrap_or(false);
+
+        if !is_valid
+            && !matches!(input.video_output_profile, media::VideoOutputProfile::Mp4Compatible)
+        {
+            eprintln!(
+                "[processor-debug] integrity check failed for memory_item_id={}, retrying with Mp4Compatible",
+                input.memory_item_id
+            );
+
+            let fallback_path = final_media_path.with_extension("mp4");
+            merge_staged_media(
+                base_media_path,
+                input.overlay_path.as_deref(),
+                &fallback_path,
+                media::MediaEncodingOptions {
+                    video_profile: media::VideoOutputProfile::Mp4Compatible,
+                    image_format: input.image_output_format,
+                    image_quality: input.image_quality,
+                },
+            )
+            .await?;
+
+            if fallback_path != final_media_path {
+                let _ = tokio::fs::remove_file(&final_media_path).await;
+            }
+
+            fallback_path
+        } else {
+            final_media_path
+        }
+    } else {
+        final_media_path
+    };
+
     media::write_metadata_with_ffmpeg(
         &final_media_path,
         &input.date_taken,

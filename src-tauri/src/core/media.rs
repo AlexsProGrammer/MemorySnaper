@@ -22,6 +22,7 @@ impl VideoOutputProfile {
             Some("linux_webm") => Self::LinuxWebm,
             Some("mov_fast") => Self::MovFast,
             Some("mov_high_quality") => Self::MovHighQuality,
+            Some("auto") => Self::from_setting(Some(&probe_system_codecs().recommended_profile)),
             Some("mp4_compatible") | None | Some(_) => Self::Mp4Compatible,
         }
     }
@@ -278,26 +279,50 @@ pub async fn cleanup_intermediate_files(
 }
 
 fn run_ffmpeg(args: Vec<String>) -> Result<(), MediaError> {
-    eprintln!("[processor-debug] ffmpeg args={}", args.join(" "));
+    eprintln!("[ffmpeg] cmd: ffmpeg {}", args.join(" "));
 
     let output = Command::new("ffmpeg")
-        .args(args)
+        .args(&args)
         .output()
         .map_err(MediaError::Io)?;
 
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+
     if output.status.success() {
+        // Log warnings from stderr even on success — encoder warnings about
+        // color space mismatches or deprecated options surface here.
+        let warnings: Vec<&str> = stderr_text
+            .lines()
+            .filter(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.contains("warning") || lower.contains("discarding")
+            })
+            .collect();
+
+        if !warnings.is_empty() {
+            eprintln!(
+                "[ffmpeg] completed with {} warning(s):",
+                warnings.len()
+            );
+            for warning in warnings {
+                eprintln!("[ffmpeg]   {}", warning.trim());
+            }
+        }
+
         return Ok(());
     }
 
+    let output_path = args.last().map(String::as_str).unwrap_or("unknown");
     eprintln!(
-        "[processor-debug] ffmpeg failure status={:?} stderr={}",
+        "[ffmpeg] FAILED status={:?} output='{}'\n[ffmpeg] stderr:\n{}",
         output.status.code(),
-        String::from_utf8_lossy(&output.stderr).trim()
+        output_path,
+        stderr_text.trim()
     );
 
     Err(MediaError::FfmpegFailed {
         status: output.status.code(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stderr: stderr_text.to_string(),
     })
 }
 
@@ -421,33 +446,31 @@ fn append_video_encoding_args(args: &mut Vec<String>, profile: VideoOutputProfil
         }
         VideoOutputProfile::LinuxWebm => {
             args.push("-c:v".to_string());
-            args.push("libvpx".to_string());
+            args.push("libvpx-vp9".to_string());
             args.push("-pix_fmt".to_string());
             args.push("yuv420p".to_string());
-            args.push("-quality".to_string());
-            args.push("good".to_string());
-            args.push("-cpu-used".to_string());
-            args.push("2".to_string());
             args.push("-b:v".to_string());
             args.push("0".to_string());
             args.push("-crf".to_string());
             args.push("20".to_string());
             args.push("-g".to_string());
             args.push("240".to_string());
-            args.push("-keyint_min".to_string());
-            args.push("24".to_string());
-            args.push("-auto-alt-ref".to_string());
+            args.push("-tile-columns".to_string());
+            args.push("2".to_string());
+            args.push("-tile-rows".to_string());
             args.push("1".to_string());
-            args.push("-lag-in-frames".to_string());
-            args.push("25".to_string());
-            args.push("-error-resilient".to_string());
+            args.push("-row-mt".to_string());
             args.push("1".to_string());
             args.push("-deadline".to_string());
             args.push("good".to_string());
+            args.push("-cpu-used".to_string());
+            args.push("3".to_string());
+            args.push("-error-resilient".to_string());
+            args.push("1".to_string());
             args.push("-c:a".to_string());
-            args.push("libvorbis".to_string());
-            args.push("-q:a".to_string());
-            args.push("4".to_string());
+            args.push("libopus".to_string());
+            args.push("-b:a".to_string());
+            args.push("128k".to_string());
             args.push("-f".to_string());
             args.push("webm".to_string());
         }
@@ -466,6 +489,8 @@ fn append_video_encoding_args(args: &mut Vec<String>, profile: VideoOutputProfil
             args.push("aac".to_string());
             args.push("-b:a".to_string());
             args.push("128k".to_string());
+            args.push("-movflags".to_string());
+            args.push("+faststart".to_string());
         }
         VideoOutputProfile::MovHighQuality => {
             args.push("-c:v".to_string());
@@ -482,8 +507,25 @@ fn append_video_encoding_args(args: &mut Vec<String>, profile: VideoOutputProfil
             args.push("aac".to_string());
             args.push("-b:a".to_string());
             args.push("192k".to_string());
+            args.push("-movflags".to_string());
+            args.push("+faststart".to_string());
         }
     }
+
+    // Explicit color space metadata for consistent decoding across players.
+    // Without these flags, GStreamer (used by WebKitGTK on Linux) may
+    // misinterpret the color space, causing wrong colors and visual artifacts.
+    args.push("-colorspace".to_string());
+    args.push("bt709".to_string());
+    args.push("-color_primaries".to_string());
+    args.push("bt709".to_string());
+    args.push("-color_trc".to_string());
+    args.push("bt709".to_string());
+    args.push("-color_range".to_string());
+    args.push("tv".to_string());
+
+    args.push("-max_muxing_queue_size".to_string());
+    args.push("1024".to_string());
 }
 
 fn append_image_encoding_args(
@@ -657,6 +699,141 @@ fn remove_file_if_exists(path: &Path) -> Result<(), MediaError> {
     }
 
     Ok(())
+}
+
+/// Probes the system for GStreamer codec availability.
+///
+/// Returns a [`SystemCodecInfo`] describing which video profiles are likely to
+/// play back correctly in WebKitGTK's GStreamer pipeline.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SystemCodecInfo {
+    pub has_h264_decoder: bool,
+    pub has_vp9_decoder: bool,
+    pub has_opus_decoder: bool,
+    pub has_aac_decoder: bool,
+    pub recommended_profile: String,
+}
+
+pub fn probe_system_codecs() -> SystemCodecInfo {
+    let has_h264 = gst_element_exists("avdec_h264")
+        || gst_element_exists("openh264dec")
+        || gst_element_exists("vaapih264dec")
+        || gst_element_exists("vah264dec");
+
+    let has_vp9 = gst_element_exists("vp9dec")
+        || gst_element_exists("vp9alphadecodebin")
+        || gst_element_exists("vaapivp9dec")
+        || gst_element_exists("vavp9dec");
+
+    let has_opus = gst_element_exists("opusdec");
+    let has_aac = gst_element_exists("avdec_aac") || gst_element_exists("faad");
+
+    let recommended = if has_h264 && has_aac {
+        "mp4_compatible"
+    } else if has_vp9 && has_opus {
+        "linux_webm"
+    } else {
+        "mp4_compatible"
+    };
+
+    SystemCodecInfo {
+        has_h264_decoder: has_h264,
+        has_vp9_decoder: has_vp9,
+        has_opus_decoder: has_opus,
+        has_aac_decoder: has_aac,
+        recommended_profile: recommended.to_string(),
+    }
+}
+
+fn gst_element_exists(element_name: &str) -> bool {
+    Command::new("gst-inspect-1.0")
+        .arg(element_name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Runs `ffprobe` on the output to verify it has at least one video stream
+/// and that its pixel format and codec match expectations.
+pub async fn verify_video_integrity(
+    video_path: &Path,
+    expected_profile: VideoOutputProfile,
+) -> Result<bool, MediaError> {
+    let video_path = video_path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        let output = Command::new("ffprobe")
+            .args([
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name,pix_fmt,width,height",
+                "-of", "csv=p=0",
+            ])
+            .arg(&video_path)
+            .output()
+            .map_err(MediaError::Io)?;
+
+        if !output.status.success() {
+            eprintln!(
+                "[media-verify] ffprobe failed for '{}': {}",
+                video_path.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            return Ok(false);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line = stdout.trim();
+
+        if line.is_empty() {
+            eprintln!(
+                "[media-verify] no video stream found in '{}'",
+                video_path.display()
+            );
+            return Ok(false);
+        }
+
+        // ffprobe csv output: codec_name,pix_fmt,width,height
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() < 2 {
+            eprintln!(
+                "[media-verify] unexpected ffprobe output for '{}': {line}",
+                video_path.display()
+            );
+            return Ok(false);
+        }
+
+        let codec = parts[0].trim();
+        let pix_fmt = parts[1].trim();
+
+        let expected_codec = match expected_profile {
+            VideoOutputProfile::Mp4Compatible
+            | VideoOutputProfile::MovFast
+            | VideoOutputProfile::MovHighQuality => "h264",
+            VideoOutputProfile::LinuxWebm => "vp9",
+        };
+
+        if codec != expected_codec {
+            eprintln!(
+                "[media-verify] codec mismatch for '{}': expected={expected_codec} actual={codec}",
+                video_path.display()
+            );
+            return Ok(false);
+        }
+
+        if pix_fmt != "yuv420p" {
+            eprintln!(
+                "[media-verify] pix_fmt mismatch for '{}': expected=yuv420p actual={pix_fmt}",
+                video_path.display()
+            );
+            return Ok(false);
+        }
+
+        Ok(true)
+    })
+    .await?
 }
 
 #[cfg(test)]

@@ -200,15 +200,14 @@ export function MediaViewerModal({
     }
 
     const normalized = item.mediaSrc.toLowerCase();
-    if (normalized.includes(".mov")) {
-      return "video/quicktime";
-    }
-
     if (normalized.includes(".webm")) {
-      return "video/webm";
+      return "video/webm; codecs=vp09.00.10.08,opus";
     }
 
-    return "video/mp4";
+    // MOV uses the same H.264+AAC codecs as MP4. WebKitGTK on Linux handles
+    // video/mp4 significantly better than video/quicktime, so we use the
+    // mp4 MIME type for both containers.
+    return "video/mp4; codecs=avc1.640028,mp4a.40.2";
   }, [item]);
 
   useEffect(() => {
@@ -220,19 +219,6 @@ export function MediaViewerModal({
         return null;
       });
       setIsVideoLoading(false);
-      return;
-    }
-
-    const normalized = item.mediaSrc.toLowerCase();
-    if (normalized.includes(".webm")) {
-      setVideoObjectUrl((previous) => {
-        if (previous) {
-          URL.revokeObjectURL(previous);
-        }
-        return null;
-      });
-      setIsVideoLoading(false);
-      setVideoLoadError(false);
       return;
     }
 

@@ -475,6 +475,11 @@ fn get_system_locale() -> Option<String> {
 }
 
 #[tauri::command]
+fn probe_system_codecs() -> core::media::SystemCodecInfo {
+    core::media::probe_system_codecs()
+}
+
+#[tauri::command]
 async fn get_job_state(app: tauri::AppHandle) -> Result<ExportJobState, String> {
     let database_url = memories_db_url(&app)?;
     let pool = sqlx::SqlitePool::connect(&database_url)
@@ -3419,6 +3424,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_system_locale,
+            probe_system_codecs,
             get_job_state,
             get_queued_count,
             set_job_state,

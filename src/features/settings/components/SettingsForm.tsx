@@ -35,6 +35,7 @@ const CONCURRENCY_WARNING_THRESHOLD = 5;
 const startupPageOptions: StartupPagePreference[] = ["system", "downloader", "viewer"];
 const thumbnailQualityOptions: ThumbnailQualityPreference[] = ["360p", "480p", "720p", "1080p"];
 const videoProfileOptions: VideoProfilePreference[] = [
+  "auto",
   "mp4_compatible",
   "linux_webm",
   "mov_fast",
@@ -87,6 +88,10 @@ function resolveVideoProfileLabel(
   value: VideoProfilePreference,
   t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
 ): string {
+  if (value === "auto") {
+    return t("settings.form.videoProfile.auto");
+  }
+
   if (value === "linux_webm") {
     return t("settings.form.videoProfile.linux_webm");
   }
@@ -139,7 +144,7 @@ export function SettingsForm() {
   const [concurrentDownloads, setConcurrentDownloads] = useState<number>(3);
   const [startupPagePreference, setStartupPagePreference] = useState<StartupPagePreference>("system");
   const [thumbnailQuality, setThumbnailQuality] = useState<ThumbnailQualityPreference>("480p");
-  const [videoProfile, setVideoProfile] = useState<VideoProfilePreference>("mp4_compatible");
+  const [videoProfile, setVideoProfile] = useState<VideoProfilePreference>("auto");
   const [imageOutputFormat, setImageOutputFormat] = useState<ImageOutputFormatPreference>("jpg");
   const [imageQuality, setImageQuality] = useState<ImageQualityPreference>("full");
   const [videoAutoplay, setVideoAutoplay] = useState(true);

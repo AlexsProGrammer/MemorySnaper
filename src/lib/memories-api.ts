@@ -75,7 +75,7 @@ export type DownloadRateLimitSettings = {
 };
 
 export type ThumbnailQuality = "360p" | "480p" | "720p" | "1080p";
-export type VideoProfile = "mp4_compatible" | "linux_webm" | "mov_fast" | "mov_high_quality";
+export type VideoProfile = "auto" | "mp4_compatible" | "linux_webm" | "mov_fast" | "mov_high_quality";
 export type ImageOutputFormat = "jpg" | "webp" | "png";
 export type ImageQuality = "full" | "balanced" | "fast";
 
@@ -123,6 +123,18 @@ export async function importMemoriesFromZip(zipPath: string): Promise<ImportMemo
 
 export async function getSystemLocale(): Promise<string | null> {
   return invoke<string | null>("get_system_locale");
+}
+
+export type SystemCodecInfo = {
+  hasH264Decoder: boolean;
+  hasVp9Decoder: boolean;
+  hasOpusDecoder: boolean;
+  hasAacDecoder: boolean;
+  recommendedProfile: string;
+};
+
+export async function probeSystemCodecs(): Promise<SystemCodecInfo> {
+  return invoke<SystemCodecInfo>("probe_system_codecs");
 }
 
 export async function validateMemoryFile(path: string): Promise<boolean> {

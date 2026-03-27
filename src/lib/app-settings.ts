@@ -8,6 +8,7 @@ export type ThemePreference = "light" | "dark" | "system";
 export type StartupPagePreference = "system" | "downloader" | "viewer";
 export type ThumbnailQualityPreference = "360p" | "480p" | "720p" | "1080p";
 export type VideoProfilePreference =
+  | "auto"
   | "mp4_compatible"
   | "linux_webm"
   | "mov_fast"
@@ -36,7 +37,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   themePreference: "system",
   startupPagePreference: "system",
   thumbnailQuality: "480p",
-  videoProfile: "mp4_compatible",
+  videoProfile: "auto",
   imageOutputFormat: "jpg",
   imageQuality: "full",
   videoAutoplay: true,
@@ -79,6 +80,7 @@ export function parseThumbnailQualityPreference(
 
 export function parseVideoProfilePreference(value: string | null): VideoProfilePreference {
   if (
+    value === "auto" ||
     value === "mp4_compatible" ||
     value === "linux_webm" ||
     value === "mov_fast" ||
@@ -87,7 +89,7 @@ export function parseVideoProfilePreference(value: string | null): VideoProfileP
     return value;
   }
 
-  return "mp4_compatible";
+  return "auto";
 }
 
 export function parseImageOutputFormatPreference(value: string | null): ImageOutputFormatPreference {
