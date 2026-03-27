@@ -456,24 +456,24 @@ export function MediaViewerModal({
       aria-label={t("viewer.modal.title")}
     >
       <div className="flex h-full w-full flex-col">
-        <header className="flex items-center justify-between px-4 py-3">
-          <p className="text-sm text-white/90">
+        <header className="flex items-center justify-between px-4 py-2.5">
+          <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur-md">
             {t("viewer.modal.counter", {
               current: currentIndex + 1,
               total: items.length,
             })}
-          </p>
+          </span>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-full bg-white/10 p-1 backdrop-blur-md">
             <TooltipProvider delayDuration={300}>
             {item.mediaKind === "video" ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                    className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                     onClick={toggleSound}
                     aria-label={
                       isSoundEnabled
@@ -494,9 +494,9 @@ export function MediaViewerModal({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={rotateCurrentLeft}
                   aria-label={t("viewer.modal.rotateLeft")}
                 >
@@ -510,9 +510,9 @@ export function MediaViewerModal({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={rotateCurrentRight}
                   aria-label={t("viewer.modal.rotateRight")}
                 >
@@ -526,9 +526,9 @@ export function MediaViewerModal({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={() => {
                     void toggleFullscreen();
                   }}
@@ -550,9 +550,9 @@ export function MediaViewerModal({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={() => setIsMetadataOpen(true)}
                   aria-label={t("viewer.modal.showMetadata")}
                 >
@@ -566,9 +566,9 @@ export function MediaViewerModal({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={() => {
                     if (document.fullscreenElement) {
                       void exitFullscreen();
@@ -591,9 +591,9 @@ export function MediaViewerModal({
         <div className="relative flex min-h-0 flex-1 items-center justify-center px-3 pb-4 pt-1 sm:px-8">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="absolute left-2 z-10 h-10 w-10 border-white/20 bg-black/30 text-white hover:bg-black/50 disabled:opacity-30 sm:left-5"
+            className="absolute left-2 z-10 h-10 w-10 rounded-full bg-white/10 text-white/80 backdrop-blur-md hover:bg-white/20 hover:text-white disabled:opacity-30 sm:left-5"
             onClick={onPrevious}
             disabled={isFirst}
             aria-label={t("viewer.modal.previous")}
@@ -611,38 +611,38 @@ export function MediaViewerModal({
               <>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="absolute left-4 z-20 h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60 disabled:opacity-30"
+                  className="absolute left-4 z-20 h-12 w-12 rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 disabled:opacity-30"
                   onClick={onPrevious}
                   disabled={isFirst}
                   aria-label={t("viewer.modal.previous")}
                 >
-                  <ChevronLeft className="h-5 w-5" />
+                  <ChevronLeft className="h-6 w-6" />
                 </Button>
 
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  className="absolute right-4 z-20 h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60 disabled:opacity-30"
+                  className="absolute right-4 z-20 h-12 w-12 rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 disabled:opacity-30"
                   onClick={onNext}
                   disabled={isLast}
                   aria-label={t("viewer.modal.next")}
                 >
-                  <ChevronRight className="h-5 w-5" />
+                  <ChevronRight className="h-6 w-6" />
                 </Button>
               </>
             ) : null}
 
             {isFullscreen ? (
-              <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+              <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/40 p-1.5 backdrop-blur-xl md:left-auto md:right-4 md:translate-x-0">
                 {item.mediaKind === "video" ? (
                   <Button
                     type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                    variant="ghost"
+                    size="icon-lg"
+                    className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                     onClick={toggleSound}
                     aria-label={
                       isSoundEnabled
@@ -656,9 +656,9 @@ export function MediaViewerModal({
 
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  variant="ghost"
+                  size="icon-lg"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={rotateCurrentLeft}
                   aria-label={t("viewer.modal.rotateLeft")}
                 >
@@ -667,9 +667,9 @@ export function MediaViewerModal({
 
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  variant="ghost"
+                  size="icon-lg"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={rotateCurrentRight}
                   aria-label={t("viewer.modal.rotateRight")}
                 >
@@ -678,9 +678,9 @@ export function MediaViewerModal({
 
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  variant="ghost"
+                  size="icon-lg"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={() => setIsMetadataOpen(true)}
                   aria-label={t("viewer.modal.showMetadata")}
                 >
@@ -689,9 +689,9 @@ export function MediaViewerModal({
 
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 border-white/20 bg-black/40 text-white hover:bg-black/60"
+                  variant="ghost"
+                  size="icon-lg"
+                  className="rounded-full text-white/80 hover:bg-white/15 hover:text-white"
                   onClick={() => {
                     void exitFullscreen();
                   }}
@@ -750,9 +750,9 @@ export function MediaViewerModal({
 
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="absolute right-2 z-10 h-10 w-10 border-white/20 bg-black/30 text-white hover:bg-black/50 disabled:opacity-30 sm:right-5"
+            className="absolute right-2 z-10 h-10 w-10 rounded-full bg-white/10 text-white/80 backdrop-blur-md hover:bg-white/20 hover:text-white disabled:opacity-30 sm:right-5"
             onClick={onNext}
             disabled={isLast}
             aria-label={t("viewer.modal.next")}
