@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CalendarIcon, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -77,6 +81,8 @@ export function ViewerFilterBar({
   onOpenChange,
 }: ViewerFilterBarProps) {
   const { t } = useI18n();
+  const [isDateFromOpen, setIsDateFromOpen] = useState(false);
+  const [isDateToOpen, setIsDateToOpen] = useState(false);
 
   const activeCount = useMemo(() => countActiveFilters(filters), [filters]);
 
@@ -119,7 +125,7 @@ export function ViewerFilterBar({
 
       {/* Filter Sheet */}
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="left" className="flex w-80 flex-col sm:w-96">
+        <SheetContent side="left" className="flex h-full w-80 flex-col overflow-y-auto sm:w-96">
           <SheetHeader>
             <SheetTitle>{t("viewer.filters.filtersButton")}</SheetTitle>
             <SheetDescription>
@@ -127,7 +133,7 @@ export function ViewerFilterBar({
             </SheetDescription>
           </SheetHeader>
 
-          <ScrollArea className="flex-1 -mx-6 px-6">
+          <div className="flex-1 overflow-y-auto px-4 py-3 sm:px-5">
             <div className="space-y-5 pb-4">
               {/* Media Type */}
               <div className="space-y-2">
@@ -152,54 +158,110 @@ export function ViewerFilterBar({
 
               <Separator />
 
+              {/* Media Format */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.mediaFormat")}</SectionTitle>
+                {filterMeta.uniqueFormats.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("viewer.filters.noFormatMetadata")}</p>
+                ) : (
+                  <div className="grid gap-1">
+                    {filterMeta.uniqueFormats.map((format) => (
+                      <Label key={format} className="text-sm font-normal">
+                        <Checkbox
+                          checked={filters.mediaFormats.has(format)}
+                          onCheckedChange={() => {
+                            patchFilters({
+                              mediaFormats: new Set(
+                                filters.mediaFormats.has(format)
+                                  ? [...filters.mediaFormats].filter((f) => f !== format)
+                                  : [...filters.mediaFormats, format],
+                              ),
+                            });
+                          }}
+                        />
+                        {format}
+                      </Label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
               {/* Date Range */}
               <div className="space-y-2">
                 <SectionTitle>{t("viewer.filters.dateRange")}</SectionTitle>
                 <div className="space-y-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">{t("viewer.filters.dateFrom")}</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full justify-start"
-                      onClick={() => { patchFilters({ dateFrom: null }); }}
-                    >
-                      <CalendarIcon className="mr-2 size-4" />
-                      {formatDateLabel(filters.dateFrom, t("viewer.filters.selectDate"))}
-                      {filters.dateFrom ? <X className="ml-auto size-3.5 text-muted-foreground" /> : null}
-                    </Button>
-                    <Calendar
-                      mode="single"
-                      selected={filters.dateFrom ?? undefined}
-                      onSelect={(date) => {
-                        patchFilters({ dateFrom: date ?? null });
-                      }}
-                      className="rounded-md border"
-                    />
+                    <Popover open={isDateFromOpen} onOpenChange={setIsDateFromOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          aria-label={t("viewer.filters.dateFrom")}
+                        >
+                          <CalendarIcon className="mr-2 size-4" />
+                          {formatDateLabel(filters.dateFrom, t("viewer.filters.selectDate"))}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={filters.dateFrom ?? undefined}
+                          onSelect={(date) => {
+                            patchFilters({ dateFrom: date ?? null });
+                            setIsDateFromOpen(false);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">{t("viewer.filters.dateTo")}</Label>
+                    <Popover open={isDateToOpen} onOpenChange={setIsDateToOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          aria-label={t("viewer.filters.dateTo")}
+                        >
+                          <CalendarIcon className="mr-2 size-4" />
+                          {formatDateLabel(filters.dateTo, t("viewer.filters.selectDate"))}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={filters.dateTo ?? undefined}
+                          onSelect={(date) => {
+                            patchFilters({ dateTo: date ?? null });
+                            setIsDateToOpen(false);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  {(filters.dateFrom || filters.dateTo) ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="w-full justify-start"
-                      onClick={() => { patchFilters({ dateTo: null }); }}
-                    >
-                      <CalendarIcon className="mr-2 size-4" />
-                      {formatDateLabel(filters.dateTo, t("viewer.filters.selectDate"))}
-                      {filters.dateTo ? <X className="ml-auto size-3.5 text-muted-foreground" /> : null}
-                    </Button>
-                    <Calendar
-                      mode="single"
-                      selected={filters.dateTo ?? undefined}
-                      onSelect={(date) => {
-                        patchFilters({ dateTo: date ?? null });
+                      className="w-full justify-start text-muted-foreground"
+                      onClick={() => {
+                        patchFilters({ dateFrom: null, dateTo: null });
                       }}
-                      className="rounded-md border"
-                    />
-                  </div>
+                    >
+                      <X className="mr-2 size-3.5" />
+                      {t("viewer.filters.clearFilters")}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
@@ -252,36 +314,6 @@ export function ViewerFilterBar({
 
               <Separator />
 
-              {/* Media Format */}
-              <div className="space-y-2">
-                <SectionTitle>{t("viewer.filters.mediaFormat")}</SectionTitle>
-                {filterMeta.uniqueFormats.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t("viewer.filters.noFormatMetadata")}</p>
-                ) : (
-                  <div className="grid gap-1">
-                    {filterMeta.uniqueFormats.map((format) => (
-                      <Label key={format} className="text-sm font-normal">
-                        <Checkbox
-                          checked={filters.mediaFormats.has(format)}
-                          onCheckedChange={() => {
-                            patchFilters({
-                              mediaFormats: new Set(
-                                filters.mediaFormats.has(format)
-                                  ? [...filters.mediaFormats].filter((f) => f !== format)
-                                  : [...filters.mediaFormats, format],
-                              ),
-                            });
-                          }}
-                        />
-                        {format}
-                      </Label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
               {/* Countries */}
               <div className="space-y-2">
                 <SectionTitle>{t("viewer.filters.countries")}</SectionTitle>
@@ -310,7 +342,7 @@ export function ViewerFilterBar({
                 )}
               </div>
             </div>
-          </ScrollArea>
+          </div>
 
           <SheetFooter className="flex-row items-center gap-2 border-t pt-4">
             <Button
