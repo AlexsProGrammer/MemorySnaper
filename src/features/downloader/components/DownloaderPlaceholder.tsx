@@ -5,7 +5,7 @@ export function DownloaderPlaceholder() {
   const { t } = useI18n();
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6 pb-8 md:pb-10">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight">
           {t("downloader.card.title")}

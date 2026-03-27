@@ -487,7 +487,7 @@ export function Grid({ rows, onItemSelect }: GridProps) {
       <div className="relative h-full min-h-80 rounded-lg">
       <div
         ref={parentRef}
-        className="relative h-full overflow-auto rounded-lg"
+        className="relative h-full overflow-auto rounded-lg pb-8"
         onScroll={(event) => {
           setScrollTop(event.currentTarget.scrollTop);
         }}
