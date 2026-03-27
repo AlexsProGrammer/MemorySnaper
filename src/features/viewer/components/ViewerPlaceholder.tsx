@@ -1,14 +1,9 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
+import { Download, ImageIcon } from "lucide-react";
+import { toast } from "sonner";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   GRID_COLUMNS,
@@ -33,7 +28,6 @@ import { useI18n } from "@/lib/i18n";
 import {
   createViewerExportZip,
   getViewerItems,
-  importViewerExportZip,
   type ViewerMediaKind,
 } from "@/lib/memories-api";
 
@@ -71,8 +65,8 @@ export function ViewerPlaceholder() {
   const [status, setStatus] = useState(t("viewer.status.loading"));
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   const filterMeta = useMemo(() => extractFilterMeta(items), [items]);
   const filteredItems = useMemo(() => applyViewerFilters(items, filterState), [items, filterState]);
@@ -106,42 +100,8 @@ export function ViewerPlaceholder() {
     void loadViewerItems();
   }, [loadViewerItems]);
 
-  const onImportArchive = async () => {
-    if (isImporting || isExporting) {
-      return;
-    }
-
-    try {
-      setIsImporting(true);
-      const picked = await open({
-        multiple: false,
-        filters: [{ name: "ZIP", extensions: ["zip"] }],
-      });
-
-      if (!picked || typeof picked !== "string") {
-        return;
-      }
-
-      const result = await importViewerExportZip(picked);
-      await loadViewerItems();
-      setStatus(
-        t("viewer.import.success", {
-          importedCount: result.importedCount,
-          skippedCount: result.skippedCount,
-        }),
-      );
-    } catch (error: unknown) {
-      const msg = typeof error === "string" ? error : "";
-      const isWrongType =
-        msg.includes("unsupported archive type") || msg.includes("manifest");
-      setStatus(isWrongType ? t("viewer.import.wrongArchiveType") : t("viewer.import.error"));
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   const onExportArchive = async () => {
-    if (isExporting || isImporting) {
+    if (isExporting) {
       return;
     }
 
@@ -158,9 +118,9 @@ export function ViewerPlaceholder() {
       }
 
       const result = await createViewerExportZip(picked);
-      setStatus(t("viewer.export.success", { count: result.addedFiles }));
+      toast.success(t("viewer.export.success", { count: result.addedFiles }));
     } catch {
-      setStatus(t("viewer.export.error"));
+      toast.error(t("viewer.export.error"));
     } finally {
       setIsExporting(false);
     }
@@ -378,46 +338,61 @@ export function ViewerPlaceholder() {
   );
 
   return (
-    <Card className="mx-auto flex h-full w-full flex-col">
-      <CardHeader>
-        <CardTitle>{t("viewer.card.title")}</CardTitle>
-        <CardDescription>
-          {t("viewer.card.description")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col space-y-3">
-        <ViewerFilterBar
-          filters={filterState}
-          onChange={setFilterState}
-          filterMeta={filterMeta}
-          totalCount={items.length}
-          filteredCount={filteredItems.length}
-        />
-        <div className="flex flex-wrap gap-2">
+    <div className="mx-auto flex h-full w-full flex-col">
+      {/* Page Header */}
+      <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight">
+            {t("viewer.card.title")}
+          </h2>
+          <p className="text-sm text-muted-foreground">{status}</p>
+        </div>
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
-              void onImportArchive();
-            }}
-            disabled={isImporting || isExporting}
+            size="sm"
+            onClick={() => { void onExportArchive(); }}
+            disabled={isExporting || items.length === 0}
+            className="gap-1.5"
           >
-            {isImporting ? t("viewer.import.inProgress") : t("viewer.import.button")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              void onExportArchive();
-            }}
-            disabled={isExporting || isImporting}
-          >
+            <Download className="h-3.5 w-3.5" />
             {isExporting ? t("viewer.export.inProgress") : t("viewer.export.button")}
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">{status}</p>
-        <Grid rows={gridRows} onItemSelect={openModalAt} />
-      </CardContent>
+      </div>
+
+      {/* Filter Bar */}
+      <ViewerFilterBar
+        filters={filterState}
+        onChange={setFilterState}
+        filterMeta={filterMeta}
+        totalCount={items.length}
+        filteredCount={filteredItems.length}
+        open={filterSheetOpen}
+        onOpenChange={setFilterSheetOpen}
+      />
+
+      {/* Grid or Empty State */}
+      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+        {items.length === 0 && status !== t("viewer.status.loading") ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed border-muted-foreground/25 py-16">
+            <div className="rounded-full bg-muted/50 p-4">
+              <ImageIcon className="h-10 w-10 text-muted-foreground/50" />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">
+                {t("viewer.empty.title")}
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                {t("viewer.empty.description")}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Grid rows={gridRows} onItemSelect={openModalAt} />
+        )}
+      </div>
 
       <MediaViewerModal
         open={isModalOpen}
@@ -427,6 +402,6 @@ export function ViewerPlaceholder() {
         onPrevious={goPrevious}
         onNext={goNext}
       />
-    </Card>
+    </div>
   );
 }

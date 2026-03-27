@@ -1,10 +1,35 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "next-themes";
-import { confirm, save } from "@tauri-apps/plugin-dialog";
-import { Loader2 } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
+import { Loader2, Monitor, Moon, Sun } from "lucide-react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  applyAccentColor,
   clearPersistedAppClientState,
   parseImageOutputFormatPreference,
   parseImageQualityPreference,
@@ -14,6 +39,7 @@ import {
   parseVideoProfilePreference,
   readAppSettings,
   writeAppSettings,
+  type AccentColor,
   type ImageOutputFormatPreference,
   type ImageQualityPreference,
   type HardwareAccelerationPreference,
@@ -24,16 +50,17 @@ import {
 } from "@/lib/app-settings";
 import { parseLanguagePreference, type LanguagePreference } from "@/lib/language";
 import { useI18n } from "@/lib/i18n";
+import type { TranslationKey } from "@/lib/i18n-messages";
 import {
   createSettingsMediaBackupZip,
   createViewerExportZip,
   resetAllAppData,
 } from "@/lib/memories-api";
+import { cn } from "@/lib/utils";
 
 const REQUESTS_WARNING_THRESHOLD = 100;
 const CONCURRENCY_WARNING_THRESHOLD = 5;
 
-const startupPageOptions: StartupPagePreference[] = ["system", "downloader", "viewer"];
 const thumbnailQualityOptions: ThumbnailQualityPreference[] = ["360p", "480p", "720p", "1080p"];
 const videoProfileOptions: VideoProfilePreference[] = [
   "auto",
@@ -44,8 +71,22 @@ const videoProfileOptions: VideoProfilePreference[] = [
 ];
 const imageOutputFormatOptions: ImageOutputFormatPreference[] = ["jpg", "webp", "png"];
 const imageQualityOptions: ImageQualityPreference[] = ["full", "balanced", "fast"];
-const hardwareAccelerationOptions: HardwareAccelerationPreference[] = ["enabled", "disabled"];
-const booleanOptions = [true, false] as const;
+
+const ACCENT_COLORS: { value: AccentColor; swatch: string }[] = [
+  { value: "yellow", swatch: "bg-yellow-400" },
+  { value: "blue", swatch: "bg-blue-500" },
+  { value: "purple", swatch: "bg-purple-500" },
+  { value: "green", swatch: "bg-green-500" },
+  { value: "rose", swatch: "bg-rose-500" },
+];
+
+const accentLabelKeys: Record<AccentColor, TranslationKey> = {
+  yellow: "settings.form.accentColor.yellow",
+  blue: "settings.form.accentColor.blue",
+  purple: "settings.form.accentColor.purple",
+  green: "settings.form.accentColor.green",
+  rose: "settings.form.accentColor.rose",
+};
 
 function clampNonNegativeInteger(value: string): number {
   const parsedValue = Number.parseInt(value, 10);
@@ -67,88 +108,49 @@ function resolveThemePreference(value: string | undefined): ThemePreference {
   return parseThemePreference(value);
 }
 
-function resolveThumbnailQualityLabel(
-  value: ThumbnailQualityPreference,
-  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
-): string {
-  if (value === "360p") {
-    return t("settings.form.thumbnailQuality.360p");
-  }
+const thumbnailQualityLabelKeys: Record<ThumbnailQualityPreference, TranslationKey> = {
+  "360p": "settings.form.thumbnailQuality.360p",
+  "480p": "settings.form.thumbnailQuality.480p",
+  "720p": "settings.form.thumbnailQuality.720p",
+  "1080p": "settings.form.thumbnailQuality.1080p",
+};
 
-  if (value === "720p") {
-    return t("settings.form.thumbnailQuality.720p");
-  }
+const videoProfileLabelKeys: Record<VideoProfilePreference, TranslationKey> = {
+  auto: "settings.form.videoProfile.auto",
+  mp4_compatible: "settings.form.videoProfile.mp4_compatible",
+  linux_webm: "settings.form.videoProfile.linux_webm",
+  mov_fast: "settings.form.videoProfile.mov_fast",
+  mov_high_quality: "settings.form.videoProfile.mov_high_quality",
+};
 
-  if (value === "1080p") {
-    return t("settings.form.thumbnailQuality.1080p");
-  }
+const imageFormatLabelKeys: Record<ImageOutputFormatPreference, TranslationKey> = {
+  jpg: "settings.form.imageFormat.jpg",
+  webp: "settings.form.imageFormat.webp",
+  png: "settings.form.imageFormat.png",
+};
 
-  return t("settings.form.thumbnailQuality.480p");
-}
+const imageQualityLabelKeys: Record<ImageQualityPreference, TranslationKey> = {
+  full: "settings.form.imageQuality.full",
+  balanced: "settings.form.imageQuality.balanced",
+  fast: "settings.form.imageQuality.fast",
+};
 
-function resolveVideoProfileLabel(
-  value: VideoProfilePreference,
-  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
-): string {
-  if (value === "auto") {
-    return t("settings.form.videoProfile.auto");
-  }
+const hwAccelLabelKeys: Record<HardwareAccelerationPreference, TranslationKey> = {
+  enabled: "settings.form.videoHardwareAcceleration.enabled",
+  disabled: "settings.form.videoHardwareAcceleration.disabled",
+};
 
-  if (value === "linux_webm") {
-    return t("settings.form.videoProfile.linux_webm");
-  }
+const languageLabelKeys: Record<LanguagePreference, TranslationKey> = {
+  system: "settings.form.language.system",
+  en: "settings.form.language.en",
+  de: "settings.form.language.de",
+};
 
-  if (value === "mov_fast") {
-    return t("settings.form.videoProfile.mov_fast");
-  }
-
-  if (value === "mov_high_quality") {
-    return t("settings.form.videoProfile.mov_high_quality");
-  }
-
-  return t("settings.form.videoProfile.mp4_compatible");
-}
-
-function resolveImageOutputFormatLabel(
-  value: ImageOutputFormatPreference,
-  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
-): string {
-  if (value === "webp") {
-    return t("settings.form.imageFormat.webp");
-  }
-
-  if (value === "png") {
-    return t("settings.form.imageFormat.png");
-  }
-
-  return t("settings.form.imageFormat.jpg");
-}
-
-function resolveImageQualityLabel(
-  value: ImageQualityPreference,
-  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
-): string {
-  if (value === "balanced") {
-    return t("settings.form.imageQuality.balanced");
-  }
-
-  if (value === "fast") {
-    return t("settings.form.imageQuality.fast");
-  }
-
-  return t("settings.form.imageQuality.full");
-}
-
-function resolveHardwareAccelerationLabel(
-  value: HardwareAccelerationPreference,
-  t: (key: import("@/lib/i18n-messages").TranslationKey) => string,
-): string {
-  if (value === "enabled") {
-    return t("settings.form.videoHardwareAcceleration.enabled");
-  }
-
-  return t("settings.form.videoHardwareAcceleration.disabled");
-}
+const startupPageLabelKeys: Record<StartupPagePreference, TranslationKey> = {
+  system: "settings.form.startupPage.system",
+  downloader: "settings.form.startupPage.downloader",
+  viewer: "settings.form.startupPage.viewer",
+};
 
 export function SettingsForm() {
   const { theme, setTheme } = useTheme();
@@ -164,13 +166,12 @@ export function SettingsForm() {
   const [videoMutedByDefault, setVideoMutedByDefault] = useState(true);
   const [videoHardwareAcceleration, setVideoHardwareAcceleration] =
     useState<HardwareAccelerationPreference>("disabled");
+  const [accentColor, setAccentColor] = useState<AccentColor>("yellow");
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
   const [isResettingAllData, setIsResettingAllData] = useState(false);
-  const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
   const [isCreatingBackup, setIsCreatingBackup] = useState(false);
   const [isCreatingViewerExport, setIsCreatingViewerExport] = useState(false);
-  const [backupStatusMessage, setBackupStatusMessage] = useState<string | null>(null);
-  const [backupStatusTone, setBackupStatusTone] = useState<"neutral" | "error" | "success">("neutral");
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   useEffect(() => {
     const settings = readAppSettings();
@@ -184,6 +185,7 @@ export function SettingsForm() {
     setVideoAutoplay(settings.videoAutoplay);
     setVideoMutedByDefault(settings.videoMutedByDefault);
     setVideoHardwareAcceleration(settings.videoHardwareAcceleration);
+    setAccentColor(settings.accentColor);
     setHasLoadedSettings(true);
   }, []);
 
@@ -205,8 +207,10 @@ export function SettingsForm() {
       videoAutoplay,
       videoMutedByDefault,
       videoHardwareAcceleration,
+      accentColor,
     });
   }, [
+    accentColor,
     concurrentDownloads,
     hasLoadedSettings,
     languagePreference,
@@ -229,48 +233,9 @@ export function SettingsForm() {
     [concurrentDownloads, requestsPerMinute],
   );
 
-  const onRequestsPerMinuteChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setRequestsPerMinute(clampNonNegativeInteger(event.target.value));
-  };
-
-  const onConcurrentDownloadsChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setConcurrentDownloads(clampNonNegativeInteger(event.target.value));
-  };
-
-  const onLanguagePreferenceChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setLanguagePreference(parseLanguagePreference(event.target.value));
-  };
-
-  const onStartupPagePreferenceChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setStartupPagePreference(parseStartupPagePreference(event.target.value));
-  };
-
-  const onThumbnailQualityChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setThumbnailQuality(parseThumbnailQualityPreference(event.target.value));
-  };
-
-  const onVideoProfileChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setVideoProfile(parseVideoProfilePreference(event.target.value));
-  };
-
-  const onImageOutputFormatChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setImageOutputFormat(parseImageOutputFormatPreference(event.target.value));
-  };
-
-  const onImageQualityChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setImageQuality(parseImageQualityPreference(event.target.value));
-  };
-
-  const onVideoAutoplayChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setVideoAutoplay(event.target.value === "true");
-  };
-
-  const onVideoMutedByDefaultChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setVideoMutedByDefault(event.target.value === "true");
-  };
-
-  const onVideoHardwareAccelerationChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setVideoHardwareAcceleration(event.target.value as HardwareAccelerationPreference);
+  const onAccentColorChange = (color: AccentColor) => {
+    setAccentColor(color);
+    applyAccentColor(color);
   };
 
   const onResetAllData = async () => {
@@ -278,15 +243,6 @@ export function SettingsForm() {
       return;
     }
 
-    const confirmed = await confirm(t("settings.form.reset.confirm"), {
-      title: t("settings.form.reset.confirmTitle"),
-      kind: "warning",
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    setResetErrorMessage(null);
     setIsResettingAllData(true);
 
     try {
@@ -294,7 +250,7 @@ export function SettingsForm() {
       clearPersistedAppClientState();
       window.location.reload();
     } catch {
-      setResetErrorMessage(t("settings.form.reset.error"));
+      toast.error(t("settings.form.reset.error"));
       setIsResettingAllData(false);
     }
   };
@@ -304,8 +260,6 @@ export function SettingsForm() {
       return;
     }
 
-    setBackupStatusMessage(null);
-    setBackupStatusTone("neutral");
     setIsCreatingBackup(true);
 
     try {
@@ -320,13 +274,9 @@ export function SettingsForm() {
       }
 
       const result = await createSettingsMediaBackupZip(pickedPath);
-      setBackupStatusTone("success");
-      setBackupStatusMessage(
-        t("settings.form.backup.success", { count: result.addedFiles }),
-      );
+      toast.success(t("settings.form.backup.success", { count: result.addedFiles }));
     } catch {
-      setBackupStatusTone("error");
-      setBackupStatusMessage(t("settings.form.backup.error"));
+      toast.error(t("settings.form.backup.error"));
     } finally {
       setIsCreatingBackup(false);
     }
@@ -337,8 +287,6 @@ export function SettingsForm() {
       return;
     }
 
-    setBackupStatusMessage(null);
-    setBackupStatusTone("neutral");
     setIsCreatingViewerExport(true);
 
     try {
@@ -353,289 +301,281 @@ export function SettingsForm() {
       }
 
       const result = await createViewerExportZip(pickedPath);
-      setBackupStatusTone("success");
-      setBackupStatusMessage(
-        t("settings.form.viewerExport.success", { count: result.addedFiles }),
-      );
+      toast.success(t("settings.form.viewerExport.success", { count: result.addedFiles }));
     } catch {
-      setBackupStatusTone("error");
-      setBackupStatusMessage(t("settings.form.viewerExport.error"));
+      toast.error(t("settings.form.viewerExport.error"));
     } finally {
       setIsCreatingViewerExport(false);
     }
   };
 
   return (
-    <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.interface")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">{t("settings.form.appearance")}</p>
-            <div className="flex gap-2">
-              {(["light", "system", "dark"] as ThemeOption[]).map((option) => (
-                <Button
-                  key={option}
-                  type="button"
-                  variant={theme === option ? "default" : "outline"}
-                  className="flex-1"
-                  onClick={() => setTheme(option)}
-                >
-                  {option === "light"
-                    ? t("settings.form.theme.light")
-                    : option === "dark"
-                      ? t("settings.form.theme.dark")
-                      : t("settings.form.theme.system")}
-                </Button>
-              ))}
-            </div>
-          </div>
+    <Tabs defaultValue="interface" className="flex flex-col">
+      <TabsList className="w-full justify-start overflow-x-auto">
+        <TabsTrigger value="interface">{t("settings.form.section.interface")}</TabsTrigger>
+        <TabsTrigger value="processing">{t("settings.form.section.processing")}</TabsTrigger>
+        <TabsTrigger value="media">{t("settings.form.section.mediaOutput")}</TabsTrigger>
+        <TabsTrigger value="playback">{t("settings.form.section.viewerPlayback")}</TabsTrigger>
+        <TabsTrigger value="data">{t("settings.form.section.data")}</TabsTrigger>
+      </TabsList>
 
-          <div className="space-y-2">
-            <label htmlFor="language-preference" className="text-sm font-medium">
-              {t("settings.form.language")}
-            </label>
-            <select
-              id="language-preference"
-              value={languagePreference}
-              onChange={onLanguagePreferenceChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
+      {/* ── Interface ── */}
+      <TabsContent value="interface" className="space-y-6 pt-4">
+        {/* Theme */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">{t("settings.form.appearance")}</Label>
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={theme ?? "system"}
+            onValueChange={(value) => { if (value) setTheme(value as ThemeOption); }}
+          >
+            <ToggleGroupItem value="light" className="gap-1.5">
+              <Sun className="size-4" />
+              {t("settings.form.theme.light")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="system" className="gap-1.5">
+              <Monitor className="size-4" />
+              {t("settings.form.theme.system")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="dark" className="gap-1.5">
+              <Moon className="size-4" />
+              {t("settings.form.theme.dark")}
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+
+        {/* Language */}
+        <div className="space-y-2">
+          <Label>{t("settings.form.language")}</Label>
+          <Select
+            value={languagePreference}
+            onValueChange={(value) => { setLanguagePreference(parseLanguagePreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {languageOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option === "system"
-                    ? t("settings.form.language.system")
-                    : option === "de"
-                      ? t("settings.form.language.de")
-                      : t("settings.form.language.en")}
-                </option>
+                <SelectItem key={option} value={option}>
+                  {t(languageLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-            {languagePreference === "system" ? (
-              <p className="text-xs text-muted-foreground">
-                {t("settings.form.language.detected", { locale: resolvedLocale.toUpperCase() })}
-              </p>
-            ) : null}
-          </div>
+            </SelectContent>
+          </Select>
+          {languagePreference === "system" ? (
+            <p className="text-xs text-muted-foreground">
+              {t("settings.form.language.detected", { locale: resolvedLocale.toUpperCase() })}
+            </p>
+          ) : null}
+        </div>
 
-          <div className="space-y-2">
-            <label htmlFor="startup-page-preference" className="text-sm font-medium">
-              {t("settings.form.startupPage")}
-            </label>
-            <select
-              id="startup-page-preference"
-              value={startupPagePreference}
-              onChange={onStartupPagePreferenceChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {startupPageOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option === "system"
-                    ? t("settings.form.startupPage.system")
-                    : option === "downloader"
-                      ? t("settings.form.startupPage.downloader")
-                      : t("settings.form.startupPage.viewer")}
-                </option>
+        {/* Startup Page */}
+        <div className="space-y-2">
+          <Label>{t("settings.form.startupPage")}</Label>
+          <Select
+            value={startupPagePreference}
+            onValueChange={(value) => { setStartupPagePreference(parseStartupPagePreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["system", "downloader", "viewer"] as StartupPagePreference[]).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(startupPageLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Separator />
+
+        {/* Accent Color */}
+        <div className="space-y-2">
+          <Label>{t("settings.form.accentColor")}</Label>
+          <div className="flex items-center gap-3">
+            {ACCENT_COLORS.map(({ value, swatch }) => (
+              <button
+                key={value}
+                type="button"
+                aria-label={t(accentLabelKeys[value])}
+                className={cn(
+                  "size-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  swatch,
+                  accentColor === value
+                    ? "ring-2 ring-ring ring-offset-2 ring-offset-background scale-110"
+                    : "hover:scale-105",
+                )}
+                onClick={() => { onAccentColorChange(value); }}
+              />
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.processing")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="requests-per-minute" className="text-sm font-medium">
-              {t("settings.form.requestsPerMinute")}
-            </label>
-            <input
-              id="requests-per-minute"
-              type="number"
-              min={0}
-              step={1}
-              value={requestsPerMinute}
-              onChange={onRequestsPerMinuteChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
+      {/* ── Processing ── */}
+      <TabsContent value="processing" className="space-y-6 pt-4">
+        <div className="space-y-2">
+          <Label htmlFor="requests-per-minute">{t("settings.form.requestsPerMinute")}</Label>
+          <Input
+            id="requests-per-minute"
+            type="number"
+            min={0}
+            step={1}
+            value={requestsPerMinute}
+            onChange={(event) => { setRequestsPerMinute(clampNonNegativeInteger(event.target.value)); }}
+          />
+        </div>
 
-          <div className="space-y-2">
-            <label htmlFor="concurrent-downloads" className="text-sm font-medium">
-              {t("settings.form.concurrentDownloads")}
-            </label>
-            <input
-              id="concurrent-downloads"
-              type="number"
-              min={0}
-              step={1}
-              value={concurrentDownloads}
-              onChange={onConcurrentDownloadsChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="concurrent-downloads">{t("settings.form.concurrentDownloads")}</Label>
+          <Input
+            id="concurrent-downloads"
+            type="number"
+            min={0}
+            step={1}
+            value={concurrentDownloads}
+            onChange={(event) => { setConcurrentDownloads(clampNonNegativeInteger(event.target.value)); }}
+          />
+        </div>
 
-          {showWarning ? <p className="text-sm text-red-600">{t("settings.form.warning")}</p> : null}
-        </CardContent>
-      </Card>
+        {showWarning ? <p className="text-sm text-red-600">{t("settings.form.warning")}</p> : null}
+      </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.mediaOutput")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="thumbnail-quality" className="text-sm font-medium">
-              {t("settings.form.thumbnailQuality")}
-            </label>
-            <select
-              id="thumbnail-quality"
-              value={thumbnailQuality}
-              onChange={onThumbnailQualityChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
+      {/* ── Media Output ── */}
+      <TabsContent value="media" className="space-y-6 pt-4">
+        <div className="space-y-2">
+          <Label>{t("settings.form.thumbnailQuality")}</Label>
+          <Select
+            value={thumbnailQuality}
+            onValueChange={(value) => { setThumbnailQuality(parseThumbnailQualityPreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {thumbnailQualityOptions.map((option) => (
-                <option key={option} value={option}>
-                  {resolveThumbnailQualityLabel(option, t)}
-                </option>
+                <SelectItem key={option} value={option}>
+                  {t(thumbnailQualityLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-          </div>
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div className="space-y-2">
-            <label htmlFor="video-profile" className="text-sm font-medium">
-              {t("settings.form.videoProfile")}
-            </label>
-            <select
-              id="video-profile"
-              value={videoProfile}
-              onChange={onVideoProfileChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
+        <div className="space-y-2">
+          <Label>{t("settings.form.videoProfile")}</Label>
+          <Select
+            value={videoProfile}
+            onValueChange={(value) => { setVideoProfile(parseVideoProfilePreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {videoProfileOptions.map((option) => (
-                <option key={option} value={option}>
-                  {resolveVideoProfileLabel(option, t)}
-                </option>
+                <SelectItem key={option} value={option}>
+                  {t(videoProfileLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-          </div>
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div className="space-y-2">
-            <label htmlFor="image-output-format" className="text-sm font-medium">
-              {t("settings.form.imageFormat")}
-            </label>
-            <select
-              id="image-output-format"
-              value={imageOutputFormat}
-              onChange={onImageOutputFormatChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
+        <div className="space-y-2">
+          <Label>{t("settings.form.imageFormat")}</Label>
+          <Select
+            value={imageOutputFormat}
+            onValueChange={(value) => { setImageOutputFormat(parseImageOutputFormatPreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {imageOutputFormatOptions.map((option) => (
-                <option key={option} value={option}>
-                  {resolveImageOutputFormatLabel(option, t)}
-                </option>
+                <SelectItem key={option} value={option}>
+                  {t(imageFormatLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-          </div>
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div className="space-y-2">
-            <label htmlFor="image-quality" className="text-sm font-medium">
-              {t("settings.form.imageQuality")}
-            </label>
-            <select
-              id="image-quality"
-              value={imageQuality}
-              onChange={onImageQualityChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
+        <div className="space-y-2">
+          <Label>{t("settings.form.imageQuality")}</Label>
+          <Select
+            value={imageQuality}
+            onValueChange={(value) => { setImageQuality(parseImageQualityPreference(value)); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
               {imageQualityOptions.map((option) => (
-                <option key={option} value={option}>
-                  {resolveImageQualityLabel(option, t)}
-                </option>
+                <SelectItem key={option} value={option}>
+                  {t(imageQualityLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+            </SelectContent>
+          </Select>
+        </div>
+      </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.viewerPlayback")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="video-autoplay" className="text-sm font-medium">
-              {t("settings.form.videoAutoplay")}
-            </label>
-            <select
-              id="video-autoplay"
-              value={String(videoAutoplay)}
-              onChange={onVideoAutoplayChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {booleanOptions.map((value) => (
-                <option key={String(value)} value={String(value)}>
-                  {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
-                </option>
+      {/* ── Playback ── */}
+      <TabsContent value="playback" className="space-y-6 pt-4">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="video-autoplay">{t("settings.form.videoAutoplay")}</Label>
+          <Switch
+            id="video-autoplay"
+            checked={videoAutoplay}
+            onCheckedChange={setVideoAutoplay}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Label htmlFor="video-muted-default">{t("settings.form.videoMutedByDefault")}</Label>
+          <Switch
+            id="video-muted-default"
+            checked={videoMutedByDefault}
+            onCheckedChange={setVideoMutedByDefault}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>{t("settings.form.videoHardwareAcceleration")}</Label>
+          <Select
+            value={videoHardwareAcceleration}
+            onValueChange={(value) => { setVideoHardwareAcceleration(value as HardwareAccelerationPreference); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["enabled", "disabled"] as HardwareAccelerationPreference[]).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(hwAccelLabelKeys[option])}
+                </SelectItem>
               ))}
-            </select>
-          </div>
+            </SelectContent>
+          </Select>
+        </div>
+      </TabsContent>
 
-          <div className="space-y-2">
-            <label htmlFor="video-muted-default" className="text-sm font-medium">
-              {t("settings.form.videoMutedByDefault")}
-            </label>
-            <select
-              id="video-muted-default"
-              value={String(videoMutedByDefault)}
-              onChange={onVideoMutedByDefaultChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {booleanOptions.map((value) => (
-                <option key={String(value)} value={String(value)}>
-                  {value ? t("settings.form.boolean.true") : t("settings.form.boolean.false")}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* ── Data ── */}
+      <TabsContent value="data" className="space-y-6 pt-4">
+        {/* Backup & Export */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">{t("settings.form.section.backupExport")}</Label>
 
-          <div className="space-y-2">
-            <label htmlFor="video-hardware-accel" className="text-sm font-medium">
-              {t("settings.form.videoHardwareAcceleration")}
-            </label>
-            <select
-              id="video-hardware-accel"
-              value={videoHardwareAcceleration}
-              onChange={onVideoHardwareAccelerationChange}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {hardwareAccelerationOptions.map((option) => (
-                <option key={option} value={option}>
-                  {resolveHardwareAccelerationLabel(option, t)}
-                </option>
-              ))}
-            </select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.backupExport")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
           <Button
             type="button"
             variant="outline"
             className="w-full"
             disabled={isCreatingBackup || isCreatingViewerExport}
-            onClick={() => {
-              void onCreateBackupZip();
-            }}
+            onClick={() => { void onCreateBackupZip(); }}
           >
             {isCreatingBackup ? (
               <>
@@ -653,9 +593,7 @@ export function SettingsForm() {
             variant="outline"
             className="w-full"
             disabled={isCreatingViewerExport || isCreatingBackup}
-            onClick={() => {
-              void onCreateViewerExport();
-            }}
+            onClick={() => { void onCreateViewerExport(); }}
           >
             {isCreatingViewerExport ? (
               <>
@@ -668,44 +606,60 @@ export function SettingsForm() {
           </Button>
           <p className="text-xs text-muted-foreground">{t("settings.form.viewerExport.description")}</p>
 
-          {backupStatusMessage ? (
-            <p
-              className={`text-sm ${
-                backupStatusTone === "error"
-                  ? "text-red-600"
-                  : backupStatusTone === "success"
-                    ? "text-green-600"
-                    : "text-muted-foreground"
-              }`}
-            >
-              {backupStatusMessage}
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.form.section.dataReset")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button
-            type="button"
-            variant="destructive"
-            className="w-full"
-            disabled={isResettingAllData}
-            onClick={() => {
-              void onResetAllData();
-            }}
-          >
-            {isResettingAllData
-              ? t("settings.form.reset.inProgress")
-              : t("settings.form.reset.button")}
-          </Button>
+        </div>
+
+        <Separator />
+
+        {/* Data Reset */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">{t("settings.form.section.dataReset")}</Label>
           <p className="text-xs text-muted-foreground">{t("settings.form.reset.description")}</p>
-          {resetErrorMessage ? <p className="text-sm text-red-600">{resetErrorMessage}</p> : null}
-        </CardContent>
-      </Card>
-    </form>
+
+          <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                disabled={isResettingAllData}
+              >
+                {isResettingAllData
+                  ? t("settings.form.reset.inProgress")
+                  : t("settings.form.reset.button")}
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t("settings.form.reset.confirmTitle")}</DialogTitle>
+                <DialogDescription>
+                  {t("settings.form.reset.confirm")}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    {t("settings.form.reset.cancel")}
+                  </Button>
+                </DialogClose>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={isResettingAllData}
+                  onClick={() => {
+                    setResetDialogOpen(false);
+                    void onResetAllData();
+                  }}
+                >
+                  {t("settings.form.reset.button")}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+
+        </div>
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Loader2 } from "lucide-react";
+import { Archive } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { DOWNLOADER_SESSION_STORAGE_KEY, readAppSettings } from "@/lib/app-settings";
+import { ActionBar } from "@/features/downloader/components/ActionBar";
+import { LiveConsole } from "@/features/downloader/components/LiveConsole";
+import { ProgressOverview } from "@/features/downloader/components/ProgressOverview";
+import { ZipSelector } from "@/features/downloader/components/ZipSelector";
+import { ZipStatus } from "@/features/downloader/components/ZipStatus";
 import { useI18n } from "@/lib/i18n";
 import {
   finalizeZipSession,
@@ -228,26 +234,6 @@ export function Workflow() {
     }
 
     return t("downloader.workflow.error.generic");
-  };
-
-  const translateDownloadStatus = (status: string): string => {
-    if (status === "idle") {
-      return t("downloader.workflow.status.downloadStatus.idle");
-    }
-
-    if (status === "running") {
-      return t("downloader.workflow.status.downloadStatus.running");
-    }
-
-    if (status === "success") {
-      return t("downloader.workflow.status.downloadStatus.success");
-    }
-
-    if (status === "error") {
-      return t("downloader.workflow.status.downloadStatus.error");
-    }
-
-    return status;
   };
 
   const translateDownloadErrorCode = (errorCode: DownloadErrorCode | null): string => {
@@ -729,179 +715,108 @@ export function Workflow() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2 rounded-md border border-border p-3">
-        <p className="text-sm font-medium">Session Inputs</p>
+    <div className="space-y-5">
+      {/* ZIP Selector */}
+      <ZipSelector
+        selectedZipPaths={selectedZipPaths}
+        validationState={validationState}
+        validationMessage={validationMessage}
+        isWorking={isWorking}
+        onPickZipFiles={() => { void onPickZipFiles(); }}
+        onRemoveSelection={onRemoveSelection}
+        extractFileNameFromPath={extractFileNameFromPath}
+      />
+
+      {/* Viewer Archive Import */}
+      <div className="rounded-lg border bg-card p-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Archive className="h-4 w-4 text-muted-foreground" />
+          {t("downloader.workflow.viewerImport.label")}
+        </div>
         <p className="text-xs text-muted-foreground">
-          Upload Snapchat ZIP exports named like mydata~&lt;uuid&gt; (main) and optional mydata~&lt;uuid&gt; &lt;num&gt; parts.
-          The main ZIP must include json/memories_history.json and all ZIPs must include memories/.
+          {isViewerImportBlockedByZipSelection
+            ? t("downloader.workflow.viewerImport.disabledReason")
+            : t("downloader.workflow.viewerImport.description")}
         </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => { void onImportViewerArchive(); }}
+          disabled={
+            isImportingViewerArchive ||
+            isViewerImportBlockedByZipSelection ||
+            isWorking
+          }
+          className="gap-1.5"
+        >
+          <Archive className="h-3.5 w-3.5" />
+          {isImportingViewerArchive
+            ? t("downloader.workflow.viewerImport.inProgress")
+            : t("downloader.workflow.viewerImport.button")}
+        </Button>
+      </div>
 
-        <div className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span className="min-w-28 text-xs text-muted-foreground">
-              {t("downloader.workflow.viewerImport.label")}
-            </span>
-            <span className="flex-1 truncate text-sm text-muted-foreground">
-              {isViewerImportBlockedByZipSelection
-                ? t("downloader.workflow.viewerImport.disabledReason")
-                : t("downloader.workflow.viewerImport.description")}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                void onImportViewerArchive();
-              }}
-              disabled={
-                isImportingViewerArchive ||
-                isViewerImportBlockedByZipSelection ||
-                isWorking
-              }
-            >
-              {isImportingViewerArchive
-                ? t("downloader.workflow.viewerImport.inProgress")
-                : t("downloader.workflow.viewerImport.button")}
-            </Button>
-          </div>
+      {/* Action Bar */}
+      <ActionBar
+        canStart={canStart}
+        canPauseOrStop={canPauseOrStop}
+        isPaused={isPaused}
+        isStopped={isStopped}
+        isWorking={isWorking}
+        onStart={() => { void onStartSession(); }}
+        onPauseOrResume={() => { void onPauseOrResume(); }}
+        onStop={() => { void onStopSession(); }}
+      />
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span className="min-w-28 text-xs text-muted-foreground">ZIPs</span>
-            <span className="flex-1 truncate text-sm">
-              {selectedZipPaths.length > 0
-                ? `${selectedZipPaths.length} ZIP files selected`
-                : "No ZIP files selected"}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                void onPickZipFiles();
-              }}
-              disabled={isWorking}
-            >
-              Select ZIPs
-            </Button>
-          </div>
+      <Separator />
 
-          {selectedZipPaths.length > 0 ? (
-            <div className="rounded-md border border-border p-2 text-xs text-muted-foreground">
-              {selectedZipPaths.map((path) => (
-                <p key={path}>{extractFileNameFromPath(path)}</p>
-              ))}
-            </div>
-          ) : null}
+      {/* Progress Overview */}
+      <ProgressOverview
+        progressValue={progressValue}
+        totalFiles={totalFiles}
+        processedFiles={processedFiles}
+        downloadedFiles={downloadedFiles}
+        duplicatesSkipped={duplicatesSkipped}
+        downloadProgress={downloadProgress}
+        processProgress={processProgress}
+        isPaused={isPaused}
+        isStopped={isStopped}
+        importState={importState}
+      />
 
-          <div className="flex gap-2">
-            <Button type="button" onClick={() => { void onStartSession(); }} disabled={!canStart}>
-              {isWorking && !isStopped ? (
-                <Loader2
-                  className={`mr-2 h-4 w-4 animate-spin ${isPaused ? "paused" : ""}`}
-                />
-              ) : null}
-              Start Session
-            </Button>
-            <Button type="button" variant="outline" onClick={onRemoveSelection} disabled={isWorking && !isStopped}>
-              Clear Selection
-            </Button>
-          </div>
-        </div>
-
-        {validationState !== "idle" ? (
-          <p
-            className={`text-xs ${
-              validationState === "valid"
-                ? "text-green-600"
-                : validationState === "invalid"
-                  ? "text-red-600"
-                  : "text-muted-foreground"
-            }`}
+      {/* Status Notice */}
+      {statusMessage && (
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={
+              noticeTone === "success"
+                ? "default"
+                : noticeTone === "error"
+                  ? "destructive"
+                  : "secondary"
+            }
+            className="text-xs"
           >
-            {validationMessage}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Global Progress</p>
-        <Progress value={progressValue} className="h-2" />
-
-        <div className="grid gap-1 text-xs text-muted-foreground">
-          <p>Session Job: {jobId ?? "n/a"}</p>
-          <p>Files Processed: {processProgress?.completedFiles ?? processedFiles} / {totalFiles}</p>
-          <p>Imported Files: {downloadProgress?.successfulFiles ?? downloadedFiles} / {totalFiles}</p>
-          <p>Duplicates Skipped: {duplicatesSkipped}</p>
-          <p>Active ZIP: {activeZip ?? "n/a"}</p>
-          <p>
-            Import Status: {translateDownloadStatus(downloadProgress?.status ?? "idle")} · Process Status: {processProgress?.status ?? "idle"}
-          </p>
-          <p>Paused: {isPaused ? "Yes" : "No"} · Stopped: {isStopped ? "Yes" : "No"}</p>
+            {noticeTone === "success"
+              ? t("downloader.notice.success")
+              : noticeTone === "error"
+                ? t("downloader.notice.error")
+                : t("downloader.notice.info")}
+          </Badge>
+          <p className="text-xs text-muted-foreground truncate">{statusMessage}</p>
         </div>
-      </div>
+      )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => { void onPauseOrResume(); }}
-          disabled={!canPauseOrStop}
-        >
-          {isPaused ? "Resume" : "Pause"}
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={() => { void onStopSession(); }}
-          disabled={!canPauseOrStop}
-        >
-          Stop
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            void refreshSessionOverview();
-          }}
-        >
-          Reload Session State
-        </Button>
-      </div>
+      {/* ZIP Status */}
+      <ZipStatus
+        finishedZipFiles={finishedZipFiles}
+        activeZip={activeZip}
+      />
 
-      <div className="space-y-2 rounded-md border border-border p-3">
-        <p className="text-sm font-medium">ZIP Status</p>
-        {finishedZipFiles.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No finished ZIP files yet.</p>
-        ) : (
-          <div className="grid gap-1 text-xs text-muted-foreground">
-            {finishedZipFiles.map((zipFile) => (
-              <p key={zipFile}>✔ {zipFile}</p>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-2 rounded-md border border-border p-3">
-        <p className="text-sm font-medium">Live Console</p>
-        <div className="max-h-40 overflow-auto rounded-sm bg-muted/40 p-2 text-xs text-muted-foreground">
-          {logLines.length === 0 ? (
-            <p>No logs yet.</p>
-          ) : (
-            logLines.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)
-          )}
-        </div>
-      </div>
-
-      <p
-        className={`text-sm ${
-          noticeTone === "success"
-            ? "text-green-600"
-            : noticeTone === "error"
-              ? "text-red-600"
-              : "text-muted-foreground"
-        }`}
-      >
-        {statusMessage}
-      </p>
+      {/* Live Console */}
+      <LiveConsole logLines={logLines} />
     </div>
   );
 }
+

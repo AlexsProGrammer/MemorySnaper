@@ -8,7 +8,12 @@ import {
 } from "react";
 
 import { Film, ImageIcon } from "lucide-react";
-import { Tooltip } from "radix-ui";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   formatViewerFullDate,
@@ -490,7 +495,7 @@ export function Grid({ rows, onItemSelect }: GridProps) {
   );
 
   return (
-    <Tooltip.Provider delayDuration={400}>
+    <TooltipProvider delayDuration={400}>
       <div className="relative h-full min-h-80 rounded-md border border-border">
       <div
         ref={parentRef}
@@ -547,7 +552,7 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                 key={virtualRow.key}
                 data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 grid w-full grid-cols-2 gap-2 p-2 pr-16 sm:grid-cols-4"
+                className="absolute left-0 top-0 grid w-full grid-cols-2 gap-2 p-2 pr-16 sm:grid-cols-3 md:grid-cols-4"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {row.items.map((item) => {
@@ -560,8 +565,8 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                       : t("viewer.metadata.type.image");
 
                   return (
-                    <Tooltip.Root key={item.id}>
-                      <Tooltip.Trigger asChild>
+                    <Tooltip key={item.id}>
+                      <TooltipTrigger asChild>
                         <div className="relative aspect-9/16 overflow-hidden rounded-md border border-border bg-background">
                           {item.src ? (
                             <button
@@ -607,32 +612,27 @@ export function Grid({ rows, onItemSelect }: GridProps) {
                             </div>
                           ) : null}
                         </div>
-                      </Tooltip.Trigger>
-                      <Tooltip.Portal>
-                        <Tooltip.Content
-                          sideOffset={6}
-                          className="z-200 max-w-50 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground shadow-md"
-                        >
-                          <div className="space-y-1">
+                      </TooltipTrigger>
+                      <TooltipContent
+                        sideOffset={6}
+                        className="max-w-50 space-y-1 text-xs"
+                      >
                             <div className="flex gap-1.5">
-                              <span className="text-muted-foreground">{t("viewer.grid.tooltip.date")}:</span>
+                              <span className="text-background/60">{t("viewer.grid.tooltip.date")}:</span>
                               <span>{fullDate}</span>
                             </div>
                             <div className="flex gap-1.5">
-                              <span className="text-muted-foreground">{t("viewer.grid.tooltip.type")}:</span>
+                              <span className="text-background/60">{t("viewer.grid.tooltip.type")}:</span>
                               <span>{typeLabel}</span>
                             </div>
                             {item.location ? (
                               <div className="flex gap-1.5">
-                                <span className="text-muted-foreground">{t("viewer.grid.tooltip.location")}:</span>
+                                <span className="text-background/60">{t("viewer.grid.tooltip.location")}:</span>
                                 <span>{item.location}</span>
                               </div>
                             ) : null}
-                          </div>
-                          <Tooltip.Arrow className="fill-background" />
-                        </Tooltip.Content>
-                      </Tooltip.Portal>
-                    </Tooltip.Root>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -654,6 +654,6 @@ export function Grid({ rows, onItemSelect }: GridProps) {
           />
         ) : null}
       </div>
-    </Tooltip.Provider>
+    </TooltipProvider>
   );
 }

@@ -13,6 +13,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { readAppSettings } from "@/lib/app-settings";
 import { useI18n } from "@/lib/i18n";
 import type { ViewerMediaKind } from "@/lib/memories-api";
@@ -55,6 +61,7 @@ export function MediaViewerModal({
   const [rotationByItem, setRotationByItem] = useState<Record<string, number>>({});
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const blobCacheRef = useRef<Map<string, string>>(new Map());
 
@@ -311,6 +318,13 @@ export function MediaViewerModal({
     cache.clear();
   }, [open]);
 
+  // Auto-focus the dialog container when modal opens
+  useEffect(() => {
+    if (open && dialogRef.current) {
+      dialogRef.current.focus();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open || !item) {
       return;
@@ -434,7 +448,9 @@ export function MediaViewerModal({
   return (
     <>
     <div
-      className="fixed inset-0 z-100 bg-black/85 backdrop-blur-sm"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-100 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200 outline-none"
       role="dialog"
       aria-modal="true"
       aria-label={t("viewer.modal.title")}
@@ -449,90 +465,126 @@ export function MediaViewerModal({
           </p>
 
           <div className="flex items-center gap-2">
+            <TooltipProvider delayDuration={300}>
             {item.mediaKind === "video" ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-                onClick={toggleSound}
-                aria-label={
-                  isSoundEnabled
-                    ? t("viewer.modal.soundDisable")
-                    : t("viewer.modal.soundEnable")
-                }
-              >
-                {isSoundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                    onClick={toggleSound}
+                    aria-label={
+                      isSoundEnabled
+                        ? t("viewer.modal.soundDisable")
+                        : t("viewer.modal.soundEnable")
+                    }
+                  >
+                    {isSoundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {isSoundEnabled ? t("viewer.modal.soundDisable") : t("viewer.modal.soundEnable")}
+                </TooltipContent>
+              </Tooltip>
             ) : null}
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-              onClick={rotateCurrentLeft}
-              aria-label={t("viewer.modal.rotateLeft")}
-            >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  onClick={rotateCurrentLeft}
+                  aria-label={t("viewer.modal.rotateLeft")}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("viewer.modal.rotateLeft")}</TooltipContent>
+            </Tooltip>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-              onClick={rotateCurrentRight}
-              aria-label={t("viewer.modal.rotateRight")}
-            >
-              <RotateCw className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  onClick={rotateCurrentRight}
+                  aria-label={t("viewer.modal.rotateRight")}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("viewer.modal.rotateRight")}</TooltipContent>
+            </Tooltip>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-              onClick={() => {
-                void toggleFullscreen();
-              }}
-              aria-label={
-                isFullscreen
-                  ? t("viewer.modal.exitFullscreen")
-                  : t("viewer.modal.enterFullscreen")
-              }
-            >
-              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  onClick={() => {
+                    void toggleFullscreen();
+                  }}
+                  aria-label={
+                    isFullscreen
+                      ? t("viewer.modal.exitFullscreen")
+                      : t("viewer.modal.enterFullscreen")
+                  }
+                >
+                  {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {isFullscreen ? t("viewer.modal.exitFullscreen") : t("viewer.modal.enterFullscreen")}
+              </TooltipContent>
+            </Tooltip>
 
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-                onClick={() => setIsMetadataOpen(true)}
-                aria-label={t("viewer.modal.showMetadata")}
-              >
-                <Info className="h-4 w-4" />
-              </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  onClick={() => setIsMetadataOpen(true)}
+                  aria-label={t("viewer.modal.showMetadata")}
+                >
+                  <Info className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("viewer.modal.showMetadata")}</TooltipContent>
+            </Tooltip>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
-              onClick={() => {
-                if (document.fullscreenElement) {
-                  void exitFullscreen();
-                  return;
-                }
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/20 bg-black/30 text-white hover:bg-black/50"
+                  onClick={() => {
+                    if (document.fullscreenElement) {
+                      void exitFullscreen();
+                      return;
+                    }
 
-                onClose();
-              }}
-              aria-label={t("viewer.modal.close")}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+                    onClose();
+                  }}
+                  aria-label={t("viewer.modal.close")}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("viewer.modal.close")}</TooltipContent>
+            </Tooltip>
+            </TooltipProvider>
           </div>
         </header>
 

@@ -1,21 +1,53 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AppSidebar, type TabKey } from "@/components/AppSidebar";
+import { BottomNav } from "@/components/BottomNav";
 import { DownloaderPlaceholder } from "@/features/downloader/components/DownloaderPlaceholder";
 import { SettingsPlaceholder } from "@/features/settings/components/SettingsPlaceholder";
 import { ViewerPlaceholder } from "@/features/viewer/components/ViewerPlaceholder";
-import { readAppSettings } from "@/lib/app-settings";
+import { applyAccentColor, readAppSettings } from "@/lib/app-settings";
 import { useI18n } from "@/lib/i18n";
 import { getViewerItems } from "@/lib/memories-api";
+import { useIsMobile } from "@/hooks/use-mobile";
 
-type TabKey = "downloader" | "viewer" | "settings";
+function AppSkeleton() {
+  return (
+    <div className="flex h-screen w-full bg-background">
+      {/* Sidebar skeleton — desktop only */}
+      <div className="hidden md:flex w-16 flex-col gap-4 border-r p-3">
+        <Skeleton className="h-8 w-8 rounded-lg" />
+        <div className="mt-4 space-y-3">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <Skeleton className="h-8 w-8 rounded-md" />
+        </div>
+      </div>
+      {/* Content skeleton */}
+      <div className="flex-1 p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-72" />
+        <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <Skeleton className="aspect-9/16 rounded-lg" />
+          <Skeleton className="aspect-9/16 rounded-lg" />
+          <Skeleton className="aspect-9/16 rounded-lg hidden sm:block" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey | null>(null);
   const { t } = useI18n();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const settings = readAppSettings();
+    applyAccentColor(settings.accentColor);
+
     if (settings.startupPagePreference === "downloader") {
       setActiveTab("downloader");
       return;
@@ -24,7 +56,7 @@ function App() {
       setActiveTab("viewer");
       return;
     }
-    // system: open viewer if media exists, otherwise downloader
+
     getViewerItems(0, 1)
       .then((items) => {
         setActiveTab(items.length > 0 ? "viewer" : "downloader");
@@ -33,15 +65,6 @@ function App() {
         setActiveTab("downloader");
       });
   }, []);
-
-  const tabs = useMemo<Array<{ key: TabKey; label: string }>>(
-    () => [
-      { key: "downloader", label: t("app.tabs.downloader") },
-      { key: "viewer", label: t("app.tabs.viewer") },
-      { key: "settings", label: t("app.tabs.settings") },
-    ],
-    [t],
-  );
 
   const tabContent = useMemo(() => {
     switch (activeTab) {
@@ -66,40 +89,36 @@ function App() {
   }, [activeTab, t]);
 
   if (activeTab === null || tabContent === null) {
-    return <div className="flex h-screen w-full items-center justify-center bg-background" />;
+    return <AppSkeleton />;
   }
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background text-foreground">
-      {/* Step 1.2 — Tab bar: fixed bottom on mobile, relative top on desktop */}
-      <nav className="fixed bottom-0 w-full z-50 border-t bg-background md:relative md:top-0 md:border-b md:border-t-0">
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 px-4 py-3">
-          {tabs.map((tab) => (
-            <Button
-              key={tab.key}
-              type="button"
-              variant={activeTab === tab.key ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </div>
-      </nav>
+    <TooltipProvider>
+      <SidebarProvider>
+        {/* Desktop sidebar — hidden on mobile via the sidebar's built-in responsive behavior */}
+        {!isMobile && <AppSidebar activeTab={activeTab} onTabChange={setActiveTab} />}
 
-      {/* Step 1.3 — Scrollable content area; pb-16 prevents mobile tab bar overlap */}
-      <div className="flex-1 overflow-y-auto pb-16 md:pb-0">
-        <main className="mx-auto flex h-full w-full flex-col px-4 py-6">
-          <header className="mb-6">
-            <h1 className="text-2xl font-semibold tracking-tight">{t("app.header.title")}</h1>
-            <p className="text-sm text-muted-foreground">{t("app.header.subtitle")}</p>
-          </header>
+        <SidebarInset>
+          <div className="flex h-screen flex-col">
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
+              <main className="mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+                <section
+                  key={activeTab}
+                  aria-label={tabContent.title}
+                  className="flex-1 min-h-0 animate-in fade-in duration-200"
+                >
+                  {tabContent.component}
+                </section>
+              </main>
+            </div>
+          </div>
+        </SidebarInset>
 
-          <section aria-label={tabContent.title} className="flex-1 min-h-0">{tabContent.component}</section>
-        </main>
-      </div>
-    </div>
+        {/* Mobile bottom nav */}
+        {isMobile && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />}
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }
 

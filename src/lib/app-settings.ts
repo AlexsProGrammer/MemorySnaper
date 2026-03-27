@@ -16,6 +16,7 @@ export type VideoProfilePreference =
   | "mov_high_quality";
 export type ImageOutputFormatPreference = "jpg" | "webp" | "png";
 export type ImageQualityPreference = "full" | "balanced" | "fast";
+export type AccentColor = "yellow" | "blue" | "purple" | "green" | "rose";
 
 export type AppSettings = {
   requestsPerMinute: number;
@@ -30,6 +31,7 @@ export type AppSettings = {
   videoAutoplay: boolean;
   videoMutedByDefault: boolean;
   videoHardwareAcceleration: HardwareAccelerationPreference;
+  accentColor: AccentColor;
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -45,6 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   videoAutoplay: true,
   videoMutedByDefault: true,
   videoHardwareAcceleration: "disabled",
+  accentColor: "yellow",
 };
 
 function parseBooleanSetting(value: unknown, fallback: boolean): boolean {
@@ -121,6 +124,20 @@ export function parseHardwareAccelerationPreference(
   return "disabled";
 }
 
+export function parseAccentColor(value: string | null): AccentColor {
+  if (
+    value === "yellow" ||
+    value === "blue" ||
+    value === "purple" ||
+    value === "green" ||
+    value === "rose"
+  ) {
+    return value;
+  }
+
+  return "yellow";
+}
+
 function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback;
@@ -192,6 +209,11 @@ function parseSettings(rawValue: string): AppSettings | null {
         ? (Reflect.get(parsedValue, "videoHardwareAcceleration") as string)
         : null,
     );
+    const accentColor = parseAccentColor(
+      typeof Reflect.get(parsedValue, "accentColor") === "string"
+        ? (Reflect.get(parsedValue, "accentColor") as string)
+        : null,
+    );
 
     return {
       requestsPerMinute,
@@ -206,6 +228,7 @@ function parseSettings(rawValue: string): AppSettings | null {
       videoAutoplay,
       videoMutedByDefault,
       videoHardwareAcceleration,
+      accentColor,
     };
   } catch {
     return null;
@@ -237,6 +260,15 @@ export function writeAppSettings(settings: AppSettings): void {
   }
 
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+export function applyAccentColor(accent: AccentColor): void {
+  const root = document.documentElement;
+  if (accent === "yellow") {
+    root.removeAttribute("data-accent");
+  } else {
+    root.setAttribute("data-accent", accent);
+  }
 }
 
 export function clearPersistedAppClientState(): void {

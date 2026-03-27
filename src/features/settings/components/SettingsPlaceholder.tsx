@@ -1,10 +1,3 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { SettingsForm } from "@/features/settings/components/SettingsForm";
 import { useI18n } from "@/lib/i18n";
 
@@ -12,16 +5,16 @@ export function SettingsPlaceholder() {
   const { t } = useI18n();
 
   return (
-    <Card className="w-full max-w-4xl mx-auto">
-      <CardHeader>
-        <CardTitle>{t("settings.card.title")}</CardTitle>
-        <CardDescription>
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
+      <div className="space-y-1 pb-3">
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t("settings.card.title")}
+        </h2>
+        <p className="text-sm text-muted-foreground">
           {t("settings.card.description")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <SettingsForm />
-      </CardContent>
-    </Card>
+        </p>
+      </div>
+      <SettingsForm />
+    </div>
   );
 }

@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { CalendarIcon, ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { useMemo, type ReactNode } from "react";
+import { CalendarIcon, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,13 +7,21 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
 import {
   countActiveFilters,
   DEFAULT_FILTER_STATE,
@@ -22,7 +30,9 @@ import {
   type ViewerFilterState,
 } from "@/features/viewer/viewer-filters";
 import { useI18n } from "@/lib/i18n";
+import type { TranslationKey } from "@/lib/i18n-messages";
 import { cn } from "@/lib/utils";
+import type { ViewerMediaKind } from "@/lib/memories-api";
 
 export type ViewerFilterBarProps = {
   filters: ViewerFilterState;
@@ -30,6 +40,8 @@ export type ViewerFilterBarProps = {
   filterMeta: FilterMeta;
   totalCount: number;
   filteredCount: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 };
 
 function formatDateLabel(date: Date | null, fallbackLabel: string): string {
@@ -44,19 +56,16 @@ function formatDateLabel(date: Date | null, fallbackLabel: string): string {
   }).format(date);
 }
 
-function toggleSetValue<T>(source: Set<T>, value: T): Set<T> {
-  const next = new Set(source);
-  if (next.has(value)) {
-    next.delete(value);
-  } else {
-    next.add(value);
-  }
-  return next;
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</Label>;
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
-  return <Label className="text-xs text-muted-foreground">{children}</Label>;
-}
+const TIME_SLOT_KEYS: Record<TimeSlot, TranslationKey> = {
+  morning: "viewer.filters.timeSlot.morning",
+  afternoon: "viewer.filters.timeSlot.afternoon",
+  evening: "viewer.filters.timeSlot.evening",
+  night: "viewer.filters.timeSlot.night",
+};
 
 export function ViewerFilterBar({
   filters,
@@ -64,9 +73,10 @@ export function ViewerFilterBar({
   filterMeta,
   totalCount,
   filteredCount,
+  open,
+  onOpenChange,
 }: ViewerFilterBarProps) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
 
   const activeCount = useMemo(() => countActiveFilters(filters), [filters]);
 
@@ -75,139 +85,155 @@ export function ViewerFilterBar({
   };
 
   return (
-    <div className="space-y-3 rounded-md border border-border p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder={t("viewer.filters.searchPlaceholder")}
-            className="pl-8"
-            value={filters.searchQuery}
-            onChange={(event) => {
-              patchFilters({ searchQuery: event.target.value });
-            }}
-          />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            setExpanded((previous) => !previous);
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      {/* Inline search */}
+      <div className="relative flex-1">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          placeholder={t("viewer.filters.searchPlaceholder")}
+          aria-label={t("viewer.filters.searchPlaceholder")}
+          className="pl-8"
+          value={filters.searchQuery}
+          onChange={(event) => {
+            patchFilters({ searchQuery: event.target.value });
           }}
-        >
-          {t("viewer.filters.filtersButton")}
-          {activeCount > 0 ? (
-            <Badge variant="secondary" className="ml-1 px-1.5">
-              {activeCount}
-            </Badge>
-          ) : null}
-          {expanded ? <ChevronUp className="ml-1 size-4" /> : <ChevronDown className="ml-1 size-4" />}
-        </Button>
+        />
       </div>
 
-      {expanded ? (
-        <>
-          <Separator />
+      {/* Sheet trigger */}
+      <Button
+        type="button"
+        variant="outline"
+        className="gap-1.5"
+        onClick={() => { onOpenChange(true); }}
+      >
+        <SlidersHorizontal className="size-4" />
+        {t("viewer.filters.filtersButton")}
+        {activeCount > 0 ? (
+          <Badge variant="secondary" className="ml-0.5 px-1.5">
+            {activeCount}
+          </Badge>
+        ) : null}
+      </Button>
 
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.mediaType")}</SectionTitle>
-              <div className="flex flex-wrap gap-2">
-                {(["image", "video"] as const).map((mediaKind) => {
-                  const selected = filters.mediaKinds.has(mediaKind);
-                  return (
-                    <Button
-                      key={mediaKind}
-                      type="button"
-                      variant={selected ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        patchFilters({
-                          mediaKinds: toggleSetValue(filters.mediaKinds, mediaKind),
-                        });
-                      }}
-                    >
-                      {mediaKind === "image"
-                        ? t("viewer.filters.mediaType.image")
-                        : t("viewer.filters.mediaType.video")}
-                    </Button>
-                  );
-                })}
+      {/* Filter Sheet */}
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="left" className="flex w-80 flex-col sm:w-96">
+          <SheetHeader>
+            <SheetTitle>{t("viewer.filters.filtersButton")}</SheetTitle>
+            <SheetDescription>
+              {t("viewer.filters.resultsCount", { filtered: filteredCount, total: totalCount })}
+            </SheetDescription>
+          </SheetHeader>
+
+          <ScrollArea className="flex-1 -mx-6 px-6">
+            <div className="space-y-5 pb-4">
+              {/* Media Type */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.mediaType")}</SectionTitle>
+                <ToggleGroup
+                  type="multiple"
+                  size="sm"
+                  variant="outline"
+                  value={[...filters.mediaKinds]}
+                  onValueChange={(value) => {
+                    patchFilters({ mediaKinds: new Set(value as ViewerMediaKind[]) });
+                  }}
+                >
+                  <ToggleGroupItem value="image">
+                    {t("viewer.filters.mediaType.image")}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="video">
+                    {t("viewer.filters.mediaType.video")}
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.dateRange")}</SectionTitle>
-              <div className="flex flex-wrap gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button type="button" variant="outline" size="sm" className="min-w-40 justify-start">
+              <Separator />
+
+              {/* Date Range */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.dateRange")}</SectionTitle>
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">{t("viewer.filters.dateFrom")}</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => { patchFilters({ dateFrom: null }); }}
+                    >
                       <CalendarIcon className="mr-2 size-4" />
-                      {`${t("viewer.filters.dateFrom")}: ${formatDateLabel(filters.dateFrom, t("viewer.filters.selectDate"))}`}
+                      {formatDateLabel(filters.dateFrom, t("viewer.filters.selectDate"))}
+                      {filters.dateFrom ? <X className="ml-auto size-3.5 text-muted-foreground" /> : null}
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
                     <Calendar
                       mode="single"
                       selected={filters.dateFrom ?? undefined}
                       onSelect={(date) => {
                         patchFilters({ dateFrom: date ?? null });
                       }}
+                      className="rounded-md border"
                     />
-                  </PopoverContent>
-                </Popover>
-
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button type="button" variant="outline" size="sm" className="min-w-40 justify-start">
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">{t("viewer.filters.dateTo")}</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => { patchFilters({ dateTo: null }); }}
+                    >
                       <CalendarIcon className="mr-2 size-4" />
-                      {`${t("viewer.filters.dateTo")}: ${formatDateLabel(filters.dateTo, t("viewer.filters.selectDate"))}`}
+                      {formatDateLabel(filters.dateTo, t("viewer.filters.selectDate"))}
+                      {filters.dateTo ? <X className="ml-auto size-3.5 text-muted-foreground" /> : null}
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
                     <Calendar
                       mode="single"
                       selected={filters.dateTo ?? undefined}
                       onSelect={(date) => {
                         patchFilters({ dateTo: date ?? null });
                       }}
+                      className="rounded-md border"
                     />
-                  </PopoverContent>
-                </Popover>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.timeOfDay")}</SectionTitle>
-              <div className="flex flex-wrap gap-2">
-                {(["morning", "afternoon", "evening", "night"] as TimeSlot[]).map((slot) => {
-                  const selected = filters.timeSlots.has(slot);
-                  return (
-                    <Button
-                      key={slot}
-                      type="button"
-                      variant={selected ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        patchFilters({
-                          timeSlots: toggleSetValue(filters.timeSlots, slot),
-                        });
-                      }}
-                    >
-                      {t(`viewer.filters.timeSlot.${slot}`)}
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
+              <Separator />
 
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.location")}</SectionTitle>
+              {/* Time of Day */}
               <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.timeOfDay")}</SectionTitle>
+                <ToggleGroup
+                  type="multiple"
+                  size="sm"
+                  variant="outline"
+                  className="flex-wrap"
+                  value={[...filters.timeSlots]}
+                  onValueChange={(value) => {
+                    patchFilters({ timeSlots: new Set(value as TimeSlot[]) });
+                  }}
+                >
+                  {(["morning", "afternoon", "evening", "night"] as TimeSlot[]).map((slot) => (
+                    <ToggleGroupItem key={slot} value={slot}>
+                      {t(TIME_SLOT_KEYS[slot])}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+
+              <Separator />
+
+              {/* Location */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.location")}</SectionTitle>
                 <Input
                   placeholder={t("viewer.filters.locationPlaceholder")}
+                  aria-label={t("viewer.filters.locationPlaceholder")}
                   value={filters.locationQuery}
                   onChange={(event) => {
                     patchFilters({ locationQuery: event.target.value });
@@ -223,45 +249,57 @@ export function ViewerFilterBar({
                   {t("viewer.filters.hasLocationOnly")}
                 </Label>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.mediaFormat")}</SectionTitle>
-              {filterMeta.uniqueFormats.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t("viewer.filters.noFormatMetadata")}</p>
-              ) : (
-                <div className="grid gap-1">
-                  {filterMeta.uniqueFormats.map((format) => (
-                    <Label key={format} className="text-sm font-normal">
-                      <Checkbox
-                        checked={filters.mediaFormats.has(format)}
-                        onCheckedChange={() => {
-                          patchFilters({
-                            mediaFormats: toggleSetValue(filters.mediaFormats, format),
-                          });
-                        }}
-                      />
-                      {format}
-                    </Label>
-                  ))}
-                </div>
-              )}
-            </div>
+              <Separator />
 
-            <div className="space-y-2">
-              <SectionTitle>{t("viewer.filters.countries")}</SectionTitle>
-              {filterMeta.uniqueCountries.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t("viewer.filters.noCountryMetadata")}</p>
-              ) : (
-                <ScrollArea className="h-36 rounded-md border border-border p-2">
-                  <div className="grid gap-1 pr-2">
+              {/* Media Format */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.mediaFormat")}</SectionTitle>
+                {filterMeta.uniqueFormats.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("viewer.filters.noFormatMetadata")}</p>
+                ) : (
+                  <div className="grid gap-1">
+                    {filterMeta.uniqueFormats.map((format) => (
+                      <Label key={format} className="text-sm font-normal">
+                        <Checkbox
+                          checked={filters.mediaFormats.has(format)}
+                          onCheckedChange={() => {
+                            patchFilters({
+                              mediaFormats: new Set(
+                                filters.mediaFormats.has(format)
+                                  ? [...filters.mediaFormats].filter((f) => f !== format)
+                                  : [...filters.mediaFormats, format],
+                              ),
+                            });
+                          }}
+                        />
+                        {format}
+                      </Label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Countries */}
+              <div className="space-y-2">
+                <SectionTitle>{t("viewer.filters.countries")}</SectionTitle>
+                {filterMeta.uniqueCountries.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("viewer.filters.noCountryMetadata")}</p>
+                ) : (
+                  <div className="grid gap-1">
                     {filterMeta.uniqueCountries.map((country) => (
                       <Label key={country} className="text-sm font-normal">
                         <Checkbox
                           checked={filters.countries.has(country)}
                           onCheckedChange={() => {
                             patchFilters({
-                              countries: toggleSetValue(filters.countries, country),
+                              countries: new Set(
+                                filters.countries.has(country)
+                                  ? [...filters.countries].filter((c) => c !== country)
+                                  : [...filters.countries, country],
+                              ),
                             });
                           }}
                         />
@@ -269,12 +307,12 @@ export function ViewerFilterBar({
                       </Label>
                     ))}
                   </div>
-                </ScrollArea>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          </ScrollArea>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <SheetFooter className="flex-row items-center gap-2 border-t pt-4">
             <Button
               type="button"
               variant="outline"
@@ -289,17 +327,24 @@ export function ViewerFilterBar({
                 });
               }}
               disabled={activeCount === 0}
+              className="gap-1"
             >
-              <X className="mr-1 size-4" />
+              <X className="size-3.5" />
               {t("viewer.filters.clearFilters")}
             </Button>
 
-            <span className={cn("text-xs text-muted-foreground", activeCount > 0 && "text-foreground")}>
+            <span className={cn("ml-auto text-xs text-muted-foreground", activeCount > 0 && "text-foreground")}>
               {t("viewer.filters.resultsCount", { filtered: filteredCount, total: totalCount })}
             </span>
-          </div>
-        </>
-      ) : null}
+
+            <SheetClose asChild>
+              <Button type="button" size="sm">
+                {t("viewer.filters.done")}
+              </Button>
+            </SheetClose>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
