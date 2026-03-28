@@ -20,6 +20,18 @@ MemorySnaper is a privacy-first desktop application built with Tauri, React, and
 
 ---
 
+## Download/Get Snapchat Memories
+
+https://accounts.snapchat.com/v2/welcome
+
+-> My Data -> Memories
+
+Can take between 24-72 hours for Snapchat to prepare the export. Once ready, download the ZIP file and use it as input for MemorySnaper.
+Further if you first time login on your device, Snapchat may delay the export of data 72hours for security reasons. 
+
+
+---
+
 ## Getting Started
 
 ### Prerequisites
