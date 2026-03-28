@@ -312,7 +312,7 @@ export function SettingsForm() {
 
   return (
     <Tabs defaultValue="interface" value={activeTab} onValueChange={setActiveTab} className="flex flex-col bg-background rounded-lg">
-      <TabsList className="w-full justify-start overflow-x-auto">
+      <TabsList className="w-full justify-start overflow-x-auto overflow-y-hidden">
         <TabsTrigger value="interface">{t("settings.form.section.interface")}</TabsTrigger>
         <TabsTrigger value="processing">{t("settings.form.section.processing")}</TabsTrigger>
         <TabsTrigger value="media">{t("settings.form.section.mediaOutput")}</TabsTrigger>
