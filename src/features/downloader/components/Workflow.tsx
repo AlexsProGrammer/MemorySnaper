@@ -394,9 +394,11 @@ export function Workflow() {
       return 0;
     }
 
-    const completed = processProgress?.completedFiles ?? processedFiles;
+    // During live processing: completedFiles counts all items (success + error + duplicate)
+    // After processing / on reload: use processedFiles + duplicatesSkipped as completed work
+    const completed = processProgress?.completedFiles ?? (processedFiles + duplicatesSkipped);
     return Math.min(100, Math.round((completed / totalFiles) * 100));
-  }, [processProgress?.completedFiles, processedFiles, totalFiles]);
+  }, [processProgress?.completedFiles, processedFiles, duplicatesSkipped, totalFiles]);
 
   const isWorking = importState !== "idle";
   const canStart = selectedZipPaths.length > 0 && (!isWorking || isStopped);
@@ -603,8 +605,11 @@ export function Workflow() {
       setNotice("Importing memories history from main ZIP...", "success");
 
       const summary = await importMemoriesFromZip(mainZip.path);
-      setTotalFiles(summary.parsedCount);
+      setTotalFiles(summary.importedCount);
       setDownloadedFiles(0);
+      if (summary.skippedDuplicates > 0) {
+        setDuplicatesSkipped((previous) => previous + summary.skippedDuplicates);
+      }
       pushLogLine(
         `[${new Date().toISOString().slice(0, 10)}] Loaded ${summary.parsedCount} memories from memories_history.json; imported ${summary.importedCount} records (${summary.skippedDuplicates} duplicates skipped on import)`,
       );

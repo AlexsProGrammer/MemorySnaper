@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Terminal, Copy } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import {
   Accordion,
   AccordionContent,
@@ -42,17 +41,17 @@ export function LiveConsole({ logLines }: LiveConsoleProps) {
                 ({logLines.length})
               </span>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
+            <div
+              role="button"
+              tabIndex={0}
               onClick={(e) => { e.stopPropagation(); onCopyLogs(); }}
-              disabled={logLines.length === 0}
-              className="ml-auto mr-2 h-6 px-2 text-xs gap-1 text-muted-foreground"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onCopyLogs(); } }}
+              className={`ml-auto mr-2 inline-flex shrink-0 items-center justify-center gap-1 rounded-md px-2 h-6 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors ${logLines.length === 0 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+              aria-disabled={logLines.length === 0}
             >
               <Copy className="h-3 w-3" />
               {t("downloader.console.copy")}
-            </Button>
+            </div>
           </div>
         </AccordionTrigger>
         <AccordionContent className="h-auto px-4 pb-4">

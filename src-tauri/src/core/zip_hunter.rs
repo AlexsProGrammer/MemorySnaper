@@ -341,6 +341,17 @@ fn match_memory_entry_kind(entry_name: &str, date: &str, mid: &str) -> Option<Me
         return Some(MemoryEntryKind::Overlay);
     }
 
+    // Fallback: match by mid only (handles files missing the date prefix)
+    let main_mid_only = format!("{mid}-main");
+    if file_name.contains(&main_mid_only) {
+        return Some(MemoryEntryKind::Main);
+    }
+
+    let overlay_mid_only = format!("{mid}-overlay");
+    if file_name.contains(&overlay_mid_only) {
+        return Some(MemoryEntryKind::Overlay);
+    }
+
     None
 }
 

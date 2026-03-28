@@ -99,7 +99,10 @@ export function ProgressOverview({
 }: ProgressOverviewProps) {
   const { t } = useI18n();
 
-  const completedProcessed = processProgress?.completedFiles ?? processedFiles;
+  // Effective total excludes duplicates — the real number of unique items to process
+  const effectiveTotal = Math.max(0, totalFiles - duplicatesSkipped);
+
+  const completedProcessed = processProgress?.successfulFiles ?? processedFiles;
   const completedDownloaded = downloadProgress?.successfulFiles ?? downloadedFiles;
   const failedFiles = (downloadProgress?.failedFiles ?? 0) + (processProgress?.failedFiles ?? 0);
 
@@ -127,18 +130,18 @@ export function ProgressOverview({
         <StatCard
           icon={<Files className="h-4 w-4" />}
           label={t("downloader.progress.stat.total")}
-          value={totalFiles}
+          value={effectiveTotal}
           variant="muted"
         />
         <StatCard
           icon={<PackageCheck className="h-4 w-4" />}
           label={t("downloader.progress.stat.downloaded")}
-          value={`${completedDownloaded} / ${totalFiles}`}
+          value={`${completedDownloaded} / ${effectiveTotal}`}
         />
         <StatCard
           icon={<Cog className="h-4 w-4" />}
           label={t("downloader.progress.stat.processed")}
-          value={`${completedProcessed} / ${totalFiles}`}
+          value={`${completedProcessed} / ${effectiveTotal}`}
           variant="success"
         />
         <StatCard

@@ -312,9 +312,8 @@ pub async fn check_duplicate_in_db(
 
     if duplicate_id.is_some() {
         sqlx::query(
-            "UPDATE Memories SET status = 'DUPLICATE', content_hash = ?1 WHERE id = ?2",
+            "UPDATE Memories SET status = 'DUPLICATE' WHERE id = ?1",
         )
-        .bind(content_hash)
         .bind(memory_group_id)
         .execute(&pool)
         .await?;
