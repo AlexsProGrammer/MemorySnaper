@@ -58,9 +58,13 @@ function normalizeCountryKey(value: string): string {
 }
 
 function getRegionCodes(): string[] {
-  if (typeof Intl.supportedValuesOf === "function") {
+  const supportedValuesOf = (
+    Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+  ).supportedValuesOf;
+
+  if (typeof supportedValuesOf === "function") {
     try {
-      return Intl.supportedValuesOf("region");
+      return supportedValuesOf("region");
     } catch {
       // Fallback below.
     }

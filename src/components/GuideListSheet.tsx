@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { GuideDialog } from "@/components/GuideDialog";
 import { useI18n } from "@/lib/i18n";
+import type { ResolvedLocale } from "@/lib/language";
 import { guides } from "@/data/guides";
 import type { Guide } from "@/data/guides/types";
 
@@ -117,7 +118,7 @@ function GuideCard({
   onClick,
 }: {
   guide: Guide;
-  locale: "en" | "de";
+  locale: ResolvedLocale;
   onClick: () => void;
 }) {
   const Icon = iconMap[guide.icon] ?? BookOpen;
