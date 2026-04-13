@@ -61,6 +61,11 @@ export type ProcessProgressPayload = {
   status: string;
   errorCode: ProcessErrorCode | null;
   errorMessage: string | null;
+  debugStage?: string | null;
+  debugMid?: string | null;
+  debugDate?: string | null;
+  debugZip?: string | null;
+  debugDetails?: string | null;
 };
 
 export type ThumbnailItem = {

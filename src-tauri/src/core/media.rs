@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const FFMPEG_TIMEOUT_SECS: u64 = 50;
 const FFMPEG_POLL_INTERVAL_MS: u64 = 200;
@@ -282,42 +283,69 @@ pub async fn cleanup_intermediate_files(
 fn run_ffmpeg(args: Vec<String>) -> Result<(), MediaError> {
     eprintln!("[ffmpeg] cmd: ffmpeg {}", args.join(" "));
 
+    let stderr_log_path = std::env::temp_dir().join(format!(
+        "memorysnaper-ffmpeg-{}-{}.log",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    ));
+    let stderr_log_file = std::fs::File::create(&stderr_log_path).map_err(MediaError::Io)?;
+    let stderr_for_child = stderr_log_file.try_clone().map_err(MediaError::Io)?;
+
+    let mut ffmpeg_args = vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-loglevel".to_string(),
+        "warning".to_string(),
+    ];
+    ffmpeg_args.extend(args.iter().cloned());
+
     let mut child = Command::new("ffmpeg")
-        .args(&args)
+        .args(&ffmpeg_args)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(stderr_for_child))
         .spawn()
         .map_err(MediaError::Io)?;
 
     let started_at = Instant::now();
-    let output = loop {
-        if child.try_wait().map_err(MediaError::Io)?.is_some() {
-            break child.wait_with_output().map_err(MediaError::Io)?;
+    let mut timed_out = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(MediaError::Io)? {
+            break status;
         }
 
         if started_at.elapsed() >= Duration::from_secs(FFMPEG_TIMEOUT_SECS) {
+            timed_out = true;
             let _ = child.kill();
-            let timeout_output = child.wait_with_output().map_err(MediaError::Io)?;
-            let timeout_stderr = String::from_utf8_lossy(&timeout_output.stderr).to_string();
-
-            return Err(MediaError::FfmpegFailed {
-                status: None,
-                stderr: format!(
-                    "ffmpeg timed out after {}s{}{}",
-                    FFMPEG_TIMEOUT_SECS,
-                    if timeout_stderr.trim().is_empty() { "" } else { "; stderr: " },
-                    timeout_stderr.trim()
-                ),
-            });
+            break child.wait().map_err(MediaError::Io)?;
         }
 
         std::thread::sleep(Duration::from_millis(FFMPEG_POLL_INTERVAL_MS));
     };
 
-    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let stderr_text = std::fs::read_to_string(&stderr_log_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&stderr_log_path);
 
-    if output.status.success() {
+    if timed_out {
+        return Err(MediaError::FfmpegFailed {
+            status: None,
+            stderr: format!(
+                "ffmpeg timed out after {}s{}{}",
+                FFMPEG_TIMEOUT_SECS,
+                if stderr_text.trim().is_empty() {
+                    ""
+                } else {
+                    "; stderr: "
+                },
+                stderr_text.trim()
+            ),
+        });
+    }
+
+    if status.success() {
         // Log warnings from stderr even on success — encoder warnings about
         // color space mismatches or deprecated options surface here.
         let warnings: Vec<&str> = stderr_text
@@ -341,14 +369,14 @@ fn run_ffmpeg(args: Vec<String>) -> Result<(), MediaError> {
     let output_path = args.last().map(String::as_str).unwrap_or("unknown");
     eprintln!(
         "[ffmpeg] FAILED status={:?} output='{}'\n[ffmpeg] stderr:\n{}",
-        output.status.code(),
+        status.code(),
         output_path,
         stderr_text.trim()
     );
 
     Err(MediaError::FfmpegFailed {
-        status: output.status.code(),
-        stderr: stderr_text.to_string(),
+        status: status.code(),
+        stderr: stderr_text,
     })
 }
 
@@ -373,12 +401,12 @@ fn build_ffmpeg_overlay_args(
         "-y".to_string(),
         "-i".to_string(),
         base_media_path.to_string_lossy().to_string(),
-        "-i".to_string(),
-        overlay_path.to_string_lossy().to_string(),
     ];
 
     match media_kind {
         MediaKind::Image => {
+            args.push("-i".to_string());
+            args.push(overlay_path.to_string_lossy().to_string());
             args.push("-filter_complex".to_string());
             args.push("[0:v][1:v]overlay=0:0:format=auto".to_string());
             args.push("-frames:v".to_string());
@@ -390,15 +418,18 @@ fn build_ffmpeg_overlay_args(
             );
         }
         MediaKind::Video => {
+            args.push("-i".to_string());
+            args.push(overlay_path.to_string_lossy().to_string());
             args.push("-filter_complex".to_string());
             args.push(
-                "[1:v][0:v]scale2ref[ov][base];[base][ov]overlay=0:0:format=auto,format=yuv420p[vout]"
+                "[1:v]format=rgba[ovsrc];[ovsrc][0:v]scale2ref=w=main_w:h=main_h[ov][base];[base][ov]overlay=0:0:format=auto:eof_action=repeat,format=yuv420p[vout]"
                     .to_string(),
             );
             args.push("-map".to_string());
             args.push("[vout]".to_string());
             args.push("-map".to_string());
             args.push("0:a?".to_string());
+            args.push("-shortest".to_string());
             append_video_encoding_args(&mut args, encoding_options.video_profile);
         }
     }
@@ -800,9 +831,9 @@ pub async fn verify_video_integrity(
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=codec_name,pix_fmt,width,height",
+                "stream=codec_name,pix_fmt",
                 "-of",
-                "csv=p=0",
+                "default=nokey=0:noprint_wrappers=1",
             ])
             .arg(&video_path)
             .output()
@@ -828,18 +859,34 @@ pub async fn verify_video_integrity(
             return Ok(false);
         }
 
-        // ffprobe csv output: codec_name,pix_fmt,width,height
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 2 {
-            eprintln!(
-                "[media-verify] unexpected ffprobe output for '{}': {line}",
-                video_path.display()
-            );
-            return Ok(false);
+        let mut codec = None;
+        let mut pix_fmt = None;
+
+        for probe_line in line.lines() {
+            if let Some(value) = probe_line.strip_prefix("codec_name=") {
+                codec = Some(value.trim().to_string());
+            }
+            if let Some(value) = probe_line.strip_prefix("pix_fmt=") {
+                pix_fmt = Some(value.trim().to_string());
+            }
         }
 
-        let codec = parts[0].trim();
-        let pix_fmt = parts[1].trim();
+        let Some(codec) = codec else {
+            eprintln!(
+                "[media-verify] missing codec_name in ffprobe output for '{}': {}",
+                video_path.display()
+                , line
+            );
+            return Ok(false);
+        };
+        let Some(pix_fmt) = pix_fmt else {
+            eprintln!(
+                "[media-verify] missing pix_fmt in ffprobe output for '{}': {}",
+                video_path.display(),
+                line
+            );
+            return Ok(false);
+        };
 
         let expected_codec = match expected_profile {
             VideoOutputProfile::Mp4Compatible

@@ -470,18 +470,54 @@ export function Workflow() {
         }
 
         if (payload.status === "error") {
+          const debugStage = payload.debugStage ?? "unknown";
+          const debugDate = payload.debugDate ?? "unknown";
+          const debugMid = payload.debugMid ?? "unknown";
+          const debugZip = payload.debugZip ?? "unknown";
           const conciseReason = payload.errorMessage
             ? payload.errorMessage.slice(0, 400)
             : "unknown processing error";
 
+          console.log(
+            `[downloader] process-error stage=${debugStage} date=${debugDate} mid=${debugMid} zip=${debugZip} reason=${conciseReason}`,
+          );
+
           console.error(
             `[downloader] Process failed for memoryItemId=${payload.memoryItemId ?? "unknown"} ` +
-              `errorCode=${payload.errorCode ?? "unknown"} completed=${payload.completedFiles}/${payload.totalFiles} reason=${conciseReason}`,
+              `errorCode=${payload.errorCode ?? "unknown"} stage=${debugStage} date=${debugDate} mid=${debugMid} zip=${debugZip} ` +
+              `completed=${payload.completedFiles}/${payload.totalFiles} reason=${conciseReason}`,
           );
           console.error("[downloader] Process progress error event", payload);
+          console.error("[downloader] Process progress debug context", {
+            stage: payload.debugStage ?? null,
+            date: payload.debugDate ?? null,
+            mid: payload.debugMid ?? null,
+            zip: payload.debugZip ?? null,
+            details: payload.debugDetails ?? null,
+          });
+          if (payload.debugDetails) {
+            console.error("[downloader] Process progress backend details", payload.debugDetails);
+          }
           console.error("[downloader] Process progress error details", JSON.stringify(payload, null, 2));
 
           pushLogLine(`[ERROR] Processing failed for memory: ${translateProcessErrorCode(payload.errorCode)}`);
+          pushLogLine(
+            `[DEBUG] stage=${debugStage} date=${debugDate} mid=${debugMid} zip=${debugZip}`,
+          );
+        } else if (payload.status === "success" && payload.debugStage === "process.success.overlay_fallback") {
+          const debugDate = payload.debugDate ?? "unknown";
+          const debugMid = payload.debugMid ?? "unknown";
+          const debugZip = payload.debugZip ?? "unknown";
+          const fallbackReason = payload.debugDetails
+            ? payload.debugDetails.slice(0, 600)
+            : "overlay fallback without explicit reason";
+
+          console.log(
+            `[downloader] process-overlay-fallback memoryItemId=${payload.memoryItemId ?? "unknown"} date=${debugDate} mid=${debugMid} zip=${debugZip} reason=${fallbackReason}`,
+          );
+          pushLogLine(
+            `[DEBUG] Overlay fallback memoryItemId=${payload.memoryItemId ?? "unknown"} date=${debugDate} mid=${debugMid} zip=${debugZip}`,
+          );
         } else if (payload.status === "missing") {
           setMissingFiles((previous) => previous + 1);
           if (payload.memoryItemId !== null) {

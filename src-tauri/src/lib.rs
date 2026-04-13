@@ -189,6 +189,11 @@ struct ProcessProgressPayload {
     status: String,
     error_code: Option<ProcessErrorCode>,
     error_message: Option<String>,
+    debug_stage: Option<String>,
+    debug_mid: Option<String>,
+    debug_date: Option<String>,
+    debug_zip: Option<String>,
+    debug_details: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +239,64 @@ fn emit_session_log(window: &tauri::Window, message: impl Into<String>) -> Resul
             },
         )
         .map_err(|error| format!("failed to emit session log event: {error}"))
+}
+
+fn truncate_debug_text(value: &str, max_chars: usize) -> String {
+    let mut characters = value.chars();
+    let truncated: String = characters.by_ref().take(max_chars).collect();
+
+    if characters.next().is_some() {
+        format!("{truncated}...[truncated]")
+    } else {
+        truncated
+    }
+}
+
+fn describe_process_error(error: &core::processor::ProcessorError) -> (String, String) {
+    use crate::core::media::MediaError;
+    use crate::core::processor::ProcessorError;
+
+    match error {
+        ProcessorError::Media(media_error) => match media_error {
+            MediaError::FfmpegFailed { status, stderr } => (
+                "media.ffmpeg".to_string(),
+                format!(
+                    "ffmpeg failed (status={status:?}): {}",
+                    truncate_debug_text(stderr, 3200)
+                ),
+            ),
+            MediaError::MissingOverlay(path) => (
+                "media.overlay_missing".to_string(),
+                format!("overlay file is missing: {}", path.display()),
+            ),
+            MediaError::UnsupportedMediaType(path) => (
+                "media.unsupported_type".to_string(),
+                format!("unsupported media type: {}", path.display()),
+            ),
+            MediaError::InvalidMetadata(reason) => (
+                "media.invalid_metadata".to_string(),
+                truncate_debug_text(reason, 1200),
+            ),
+            MediaError::Io(io_error) => ("media.io".to_string(), io_error.to_string()),
+            MediaError::Join(join_error) => ("media.join".to_string(), join_error.to_string()),
+        },
+        ProcessorError::FfmpegFailed { status, stderr } => (
+            "processor.ffmpeg".to_string(),
+            format!(
+                "ffmpeg failed (status={status:?}): {}",
+                truncate_debug_text(stderr, 3200)
+            ),
+        ),
+        ProcessorError::Io(io_error) => ("processor.io".to_string(), io_error.to_string()),
+        ProcessorError::Join(join_error) => ("processor.join".to_string(), join_error.to_string()),
+        ProcessorError::Database(db_error) => ("processor.db".to_string(), db_error.to_string()),
+        ProcessorError::InvalidInput(reason) => {
+            ("processor.invalid_input".to_string(), reason.to_string())
+        }
+        ProcessorError::Blake3(reason) => {
+            ("processor.blake3".to_string(), truncate_debug_text(reason, 1200))
+        }
+    }
 }
 
 fn is_snapchat_export_id(value: &str) -> bool {
@@ -2081,6 +2144,13 @@ async fn process_downloaded_memories(
                         status: "error".to_string(),
                         error_code: Some(ProcessErrorCode::MissingDownloadedFile),
                         error_message: Some("downloaded source file is missing".to_string()),
+                        debug_stage: Some("download.lookup".to_string()),
+                        debug_mid: None,
+                        debug_date: Some(unit.date_taken.clone()),
+                        debug_zip: None,
+                        debug_details: Some(format!(
+                            "missing downloaded file for memory_item_id={missing_memory_item_id}"
+                        )),
                     },
                 )
                 .map_err(|error| format!("failed to emit processing progress event: {error}"))?;
@@ -2138,6 +2208,8 @@ async fn process_downloaded_memories(
 
         if let Err(error) = process_result {
             failed_count += 1;
+            let (debug_stage, debug_details) = describe_process_error(&error);
+            let concise_error = format!("processing failed at stage {debug_stage}");
 
             eprintln!(
                 "[processor-debug] processing failure memory_group={:?} progress_item_id={} error={}",
@@ -2192,7 +2264,12 @@ async fn process_downloaded_memories(
                         memory_item_id: Some(unit.progress_item_id),
                         status: "error".to_string(),
                         error_code: Some(ProcessErrorCode::ProcessingFailed),
-                        error_message: Some(error.to_string()),
+                        error_message: Some(concise_error),
+                        debug_stage: Some(debug_stage),
+                        debug_mid: None,
+                        debug_date: Some(unit.date_taken.clone()),
+                        debug_zip: None,
+                        debug_details: Some(debug_details),
                     },
                 )
                 .map_err(|emit_error| {
@@ -2242,6 +2319,11 @@ async fn process_downloaded_memories(
                         status: "duplicate".to_string(),
                         error_code: None,
                         error_message: None,
+                        debug_stage: Some("process.duplicate".to_string()),
+                        debug_mid: None,
+                        debug_date: Some(unit.date_taken.clone()),
+                        debug_zip: None,
+                        debug_details: None,
                     },
                 )
                 .map_err(|emit_error| {
@@ -2275,6 +2357,37 @@ async fn process_downloaded_memories(
                     )
                 },
             )?;
+
+        let (success_stage, success_details): (String, Option<String>) =
+            if processed_output.overlay_requested && processed_output.overlay_applied {
+                ("process.success.overlay_applied".to_string(), None)
+            } else if processed_output.overlay_requested && !processed_output.overlay_applied {
+                (
+                    "process.success.overlay_fallback".to_string(),
+                    processed_output
+                        .overlay_fallback_reason
+                        .as_deref()
+                        .map(|reason| truncate_debug_text(reason, 3200)),
+                )
+            } else {
+                ("process.success.no_overlay".to_string(), None)
+            };
+
+        if success_stage == "process.success.overlay_fallback" {
+            let fallback_reason = success_details
+                .clone()
+                .unwrap_or_else(|| "overlay fallback without explicit reason".to_string());
+            emit_session_log(
+                &window,
+                format!(
+                    "[{}] Overlay fallback used for memory_item_id={} date={} reason={}",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    unit.progress_item_id,
+                    unit.date_taken,
+                    fallback_reason
+                ),
+            )?;
+        }
 
         processed_count += 1;
 
@@ -2336,6 +2449,11 @@ async fn process_downloaded_memories(
                     status: "success".to_string(),
                     error_code: None,
                     error_message: None,
+                    debug_stage: Some(success_stage),
+                    debug_mid: None,
+                    debug_date: Some(unit.date_taken.clone()),
+                    debug_zip: None,
+                    debug_details: success_details,
                 },
             )
             .map_err(|error| format!("failed to emit processing progress event: {error}"))?;
@@ -2540,6 +2658,14 @@ async fn process_memories_from_zip_archives(
                             status: "error".to_string(),
                             error_code: Some(ProcessErrorCode::ProcessingFailed),
                             error_message: Some(timeout_message),
+                            debug_stage: Some("zip.scan.timeout".to_string()),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: None,
+                            debug_details: Some(
+                                "zip_hunter exceeded timeout while scanning all provided archives"
+                                    .to_string(),
+                            ),
                         },
                     )
                     .map_err(|emit_error| {
@@ -2590,6 +2716,11 @@ async fn process_memories_from_zip_archives(
                             status: "error".to_string(),
                             error_code: Some(ProcessErrorCode::ProcessingFailed),
                             error_message: Some(error.to_string()),
+                            debug_stage: Some("zip.scan.error".to_string()),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: None,
+                            debug_details: Some(truncate_debug_text(&error.to_string(), 3200)),
                         },
                     )
                     .map_err(|emit_error| {
@@ -2639,6 +2770,14 @@ async fn process_memories_from_zip_archives(
                         error_code: None,
                         error_message: Some(
                             "media was not found in provided zip archives".to_string(),
+                        ),
+                        debug_stage: Some("zip.scan.missing".to_string()),
+                        debug_mid: Some(memory_mid.clone()),
+                        debug_date: Some(memory_date.clone()),
+                        debug_zip: None,
+                        debug_details: Some(
+                            "no matching <date>_<mid>-main media entry found across provided zips"
+                                .to_string(),
                         ),
                     },
                 )
@@ -2758,6 +2897,14 @@ async fn process_memories_from_zip_archives(
                             status: "error".to_string(),
                             error_code: Some(ProcessErrorCode::ProcessingFailed),
                             error_message: Some(timeout_message),
+                            debug_stage: Some("process.timeout".to_string()),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: active_zip_name.clone(),
+                            debug_details: Some(
+                                "process_media exceeded timeout; likely ffmpeg/transcode blocked"
+                                    .to_string(),
+                            ),
                         },
                     )
                     .map_err(|emit_error| {
@@ -2796,11 +2943,53 @@ async fn process_memories_from_zip_archives(
                             status: "duplicate".to_string(),
                             error_code: None,
                             error_message: None,
+                            debug_stage: Some("process.duplicate".to_string()),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: active_zip_name.clone(),
+                            debug_details: None,
                         },
                     )
                     .map_err(|error| format!("failed to emit duplicate progress: {error}"))?;
             }
             Ok(crate::core::processor::ProcessMediaResult::Processed(output)) => {
+                let (success_stage, success_details): (String, Option<String>) =
+                    if output.overlay_requested && output.overlay_applied {
+                        ("process.success.overlay_applied".to_string(), None)
+                    } else if output.overlay_requested && !output.overlay_applied {
+                        (
+                            "process.success.overlay_fallback".to_string(),
+                            output
+                                .overlay_fallback_reason
+                                .as_deref()
+                                .map(|reason| truncate_debug_text(reason, 3200)),
+                        )
+                    } else {
+                        ("process.success.no_overlay".to_string(), None)
+                    };
+
+                if success_stage == "process.success.overlay_fallback" {
+                    let short_mid = memory_mid.chars().take(8).collect::<String>();
+                    let zip_name = active_zip_name
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let fallback_reason = success_details
+                        .clone()
+                        .unwrap_or_else(|| "overlay fallback without explicit reason".to_string());
+
+                    emit_session_log(
+                        &window,
+                        format!(
+                            "[{}] Overlay fallback used for date={} mid={} zip={} reason={}",
+                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                            memory_date,
+                            short_mid,
+                            zip_name,
+                            fallback_reason
+                        ),
+                    )?;
+                }
+
                 processed_count += 1;
 
                 let relative_media_path =
@@ -2849,6 +3038,11 @@ async fn process_memories_from_zip_archives(
                             status: "success".to_string(),
                             error_code: None,
                             error_message: None,
+                            debug_stage: Some(success_stage),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: active_zip_name.clone(),
+                            debug_details: success_details,
                         },
                     )
                     .map_err(|error| {
@@ -2857,6 +3051,8 @@ async fn process_memories_from_zip_archives(
             }
             Err(error) => {
                 failed_count += 1;
+                let (debug_stage, debug_details) = describe_process_error(&error);
+                let concise_error = format!("processing failed at stage {debug_stage}");
 
                 sqlx::query(
                     "UPDATE MemoryItem SET status = 'processing_failed', last_error_code = 'PROCESSING_FAILED', last_error_message = ?1 WHERE id = ?2",
@@ -2886,7 +3082,12 @@ async fn process_memories_from_zip_archives(
                             memory_item_id: Some(memory_item_id),
                             status: "error".to_string(),
                             error_code: Some(ProcessErrorCode::ProcessingFailed),
-                            error_message: Some(error.to_string()),
+                            error_message: Some(concise_error),
+                            debug_stage: Some(debug_stage),
+                            debug_mid: Some(memory_mid.clone()),
+                            debug_date: Some(memory_date.clone()),
+                            debug_zip: active_zip_name.clone(),
+                            debug_details: Some(debug_details),
                         },
                     )
                     .map_err(|emit_error| {

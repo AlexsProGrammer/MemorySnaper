@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use sqlx::SqlitePool;
@@ -126,6 +127,9 @@ pub struct ProcessMediaOutput {
     pub final_media_path: PathBuf,
     pub thumbnail_path: PathBuf,
     pub content_hash: String,
+    pub overlay_requested: bool,
+    pub overlay_applied: bool,
+    pub overlay_fallback_reason: Option<String>,
 }
 
 pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResult, ProcessorError> {
@@ -212,6 +216,9 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
         .ok_or(ProcessorError::InvalidInput("missing base media path"))?;
 
     let mut effective_overlay_path = input.overlay_path.as_deref();
+    let overlay_requested = input.overlay_path.is_some();
+    let mut overlay_applied = false;
+    let mut overlay_fallback_reason: Option<String> = None;
     let encoding_options = media::MediaEncodingOptions {
         video_profile: input.video_output_profile,
         image_format: input.image_output_format,
@@ -229,9 +236,12 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
 
     if let Err(error) = merge_result {
         if effective_overlay_path.is_some() {
+            let fallback_msg = error.to_string();
+            overlay_fallback_reason = Some(fallback_msg.clone());
+            overlay_applied = false;
             eprintln!(
                 "[processor-debug] overlay merge failed for memory_item_id={}, retrying without overlay: {}",
-                input.memory_item_id, error
+                input.memory_item_id, fallback_msg
             );
 
             effective_overlay_path = None;
@@ -239,6 +249,8 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
         } else {
             return Err(error);
         }
+    } else if overlay_requested {
+        overlay_applied = true;
     }
 
     // Post-transcode integrity check for videos: verify codec and pixel format.
@@ -299,10 +311,13 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
     .await?;
 
     eprintln!(
-        "[processor-debug] process_media success memory_item_id={} final_media='{}' thumbnail='{}'",
+        "[processor-debug] process_media success memory_item_id={} final_media='{}' thumbnail='{}' overlay_requested={} overlay_applied={} overlay_fallback={}",
         input.memory_item_id,
         final_media_path.display(),
-        thumbnail_path.display()
+        thumbnail_path.display(),
+        overlay_requested,
+        overlay_applied,
+        overlay_fallback_reason.is_some()
     );
 
     cleanup_source_artifacts(
@@ -317,6 +332,9 @@ pub async fn process_media(input: ProcessMediaInput) -> Result<ProcessMediaResul
         final_media_path,
         thumbnail_path,
         content_hash,
+        overlay_requested,
+        overlay_applied,
+        overlay_fallback_reason,
     }))
 }
 
@@ -497,18 +515,11 @@ async fn concat_video_parts(parts: &[PathBuf], output_path: &Path) -> Result<(),
             "copy".to_string(),
             output_path.to_string_lossy().to_string(),
         ];
-        let output = run_ffmpeg_with_timeout(&args)?;
+        let concat_result = run_ffmpeg_with_timeout(&args);
 
         let _ = std::fs::remove_file(&list_path);
-
-        if output.status.success() {
-            return Ok(());
-        }
-
-        Err(ProcessorError::FfmpegFailed {
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        })
+        concat_result?;
+        Ok(())
     })
     .await?
 }
@@ -574,58 +585,82 @@ async fn generate_webp_thumbnail(
         args.push("1".to_string());
         args.push(thumbnail_path_arg);
 
-        let output = run_ffmpeg_with_timeout(&args)?;
-
-        if output.status.success() {
-            return Ok(());
-        }
-
-        Err(ProcessorError::FfmpegFailed {
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        })
+        run_ffmpeg_with_timeout(&args)
     })
     .await?
 }
 
-fn run_ffmpeg_with_timeout(args: &[String]) -> Result<std::process::Output, ProcessorError> {
+fn run_ffmpeg_with_timeout(args: &[String]) -> Result<(), ProcessorError> {
+    let stderr_log_path = std::env::temp_dir().join(format!(
+        "memorysnaper-ffmpeg-{}-{}.log",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    ));
+    let stderr_log_file = std::fs::File::create(&stderr_log_path).map_err(ProcessorError::Io)?;
+    let stderr_for_child = stderr_log_file.try_clone().map_err(ProcessorError::Io)?;
+
+    let mut ffmpeg_args = vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-loglevel".to_string(),
+        "warning".to_string(),
+    ];
+    ffmpeg_args.extend(args.iter().cloned());
+
     let mut child = Command::new("ffmpeg")
-        .args(args)
+        .args(&ffmpeg_args)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(stderr_for_child))
         .spawn()
         .map_err(ProcessorError::Io)?;
 
     let started_at = Instant::now();
-
-    loop {
-        if child.try_wait().map_err(ProcessorError::Io)?.is_some() {
-            return child.wait_with_output().map_err(ProcessorError::Io);
+    let mut timed_out = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(ProcessorError::Io)? {
+            break status;
         }
 
         if started_at.elapsed() >= Duration::from_secs(FFMPEG_TIMEOUT_SECS) {
+            timed_out = true;
             let _ = child.kill();
-            let output = child.wait_with_output().map_err(ProcessorError::Io)?;
-            let stderr_text = String::from_utf8_lossy(&output.stderr).to_string();
-
-            return Err(ProcessorError::FfmpegFailed {
-                status: None,
-                stderr: format!(
-                    "ffmpeg timed out after {}s{}{}",
-                    FFMPEG_TIMEOUT_SECS,
-                    if stderr_text.trim().is_empty() {
-                        ""
-                    } else {
-                        "; stderr: "
-                    },
-                    stderr_text.trim()
-                ),
-            });
+            break child.wait().map_err(ProcessorError::Io)?;
         }
 
         std::thread::sleep(Duration::from_millis(FFMPEG_POLL_INTERVAL_MS));
+    };
+
+    let stderr_text = std::fs::read_to_string(&stderr_log_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&stderr_log_path);
+
+    if timed_out {
+        return Err(ProcessorError::FfmpegFailed {
+            status: None,
+            stderr: format!(
+                "ffmpeg timed out after {}s{}{}",
+                FFMPEG_TIMEOUT_SECS,
+                if stderr_text.trim().is_empty() {
+                    ""
+                } else {
+                    "; stderr: "
+                },
+                stderr_text.trim()
+            ),
+        });
     }
+
+    if status.success() {
+        return Ok(());
+    }
+
+    Err(ProcessorError::FfmpegFailed {
+        status: status.code(),
+        stderr: stderr_text,
+    })
 }
 
 async fn remove_file_if_exists(path: &Path) -> Result<(), ProcessorError> {
