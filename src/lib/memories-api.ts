@@ -280,6 +280,10 @@ export async function getViewerItems(
   return invoke<ViewerItem[]>("get_viewer_items", { offset, limit });
 }
 
+export async function hasViewerItems(): Promise<boolean> {
+  return invoke<boolean>("has_viewer_items");
+}
+
 export async function resetAllAppData(): Promise<void> {
   return invoke<void>("reset_all_app_data");
 }

@@ -10,7 +10,7 @@ import { SettingsPlaceholder } from "@/features/settings/components/SettingsPlac
 import { ViewerPlaceholder } from "@/features/viewer/components/ViewerPlaceholder";
 import { applyAccentColor, readAppSettings } from "@/lib/app-settings";
 import { useI18n } from "@/lib/i18n";
-import { getViewerItems } from "@/lib/memories-api";
+import { hasViewerItems } from "@/lib/memories-api";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { GuideDialog } from "@/components/GuideDialog";
 import { getGuideById } from "@/data/guides/index";
@@ -68,9 +68,9 @@ function App() {
       return;
     }
 
-    getViewerItems(0, 1)
-      .then((items) => {
-        setActiveTab(items.length > 0 ? "viewer" : "downloader");
+    hasViewerItems()
+      .then((hasItems) => {
+        setActiveTab(hasItems ? "viewer" : "downloader");
       })
       .catch(() => {
         setActiveTab("downloader");

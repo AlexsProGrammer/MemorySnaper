@@ -56,6 +56,7 @@ export type GridTimelineRow =
 type GridProps = {
   rows: GridTimelineRow[];
   onItemSelect?: (index: number) => void;
+  onNearEnd?: () => void;
 };
 
 type TimelineRailMarker = {
@@ -347,10 +348,11 @@ function TimelineRail({
   );
 }
 
-export function Grid({ rows, onItemSelect }: GridProps) {
+export function Grid({ rows, onItemSelect, onNearEnd }: GridProps) {
   const { t, resolvedLocale } = useI18n();
   const parentRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
+  const nearEndTriggerRef = useRef(-1);
   const [scrollTop, setScrollTop] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubMarker, setScrubMarker] = useState<TimelineRailMarker | null>(null);
@@ -374,6 +376,30 @@ export function Grid({ rows, onItemSelect }: GridProps) {
   const scrollProgressRatio = Math.min(scrollTop / maxScrollTop, 1);
 
   const railMarkers = useMemo(() => buildRailMarkers(rows), [rows]);
+
+  useEffect(() => {
+    if (!onNearEnd || virtualRows.length === 0) {
+      return;
+    }
+
+    const lastVirtualIndex = virtualRows.reduce(
+      (maxIndex, row) => Math.max(maxIndex, row.index),
+      -1,
+    );
+    const remainingRows = rows.length - 1 - lastVirtualIndex;
+
+    if (remainingRows > 8) {
+      return;
+    }
+
+    if (nearEndTriggerRef.current === lastVirtualIndex) {
+      return;
+    }
+
+    nearEndTriggerRef.current = lastVirtualIndex;
+    onNearEnd();
+  }, [onNearEnd, rows.length, virtualRows]);
+
   const activeMarker = useMemo(() => {
     if (!activeStickyHeader) {
       return null;

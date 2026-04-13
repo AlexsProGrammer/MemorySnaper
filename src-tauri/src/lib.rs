@@ -1646,18 +1646,26 @@ async fn get_viewer_items(
 
     let rows = sqlx::query(
         "
-        SELECT id,
-               COALESCE(date_time, date) AS date,
-               location_resolved,
-               location
-        FROM MemoryItem
-        WHERE status = 'processed'
+                SELECT mi.id,
+                             COALESCE(mi.date_time, mi.date) AS date,
+                             mi.location_resolved,
+                             mi.location,
+                             m.relative_path,
+                             m.thumbnail_path
+                FROM MemoryItem mi
+                LEFT JOIN MediaChunks mc
+                    ON mc.url = mi.media_url
+                 AND IFNULL(mc.overlay_url, '') = IFNULL(mi.overlay_url, '')
+                 AND mc.order_index = 1
+                LEFT JOIN Memories m
+                    ON m.id = mc.memory_id
+                WHERE mi.status = 'processed'
         ORDER BY CASE
-                     WHEN date_time IS NOT NULL AND TRIM(date_time) <> '' THEN datetime(date_time)
-                     WHEN date IS NOT NULL AND TRIM(date) <> '' THEN datetime(date)
+                                         WHEN mi.date_time IS NOT NULL AND TRIM(mi.date_time) <> '' THEN datetime(mi.date_time)
+                                         WHEN mi.date IS NOT NULL AND TRIM(mi.date) <> '' THEN datetime(mi.date)
                      ELSE NULL
                  END DESC,
-                 id DESC
+                                 mi.id DESC
         LIMIT ?1 OFFSET ?2
         ",
     )
@@ -1670,7 +1678,6 @@ async fn get_viewer_items(
     let output_dir = resolve_output_dir(&app, ".raw_cache")?;
     let thumbnails_dir = output_dir.join(".thumbnails");
 
-    let mut resolved_location_updates = Vec::new();
     let mut items = Vec::new();
 
     for row in rows {
@@ -1678,49 +1685,35 @@ async fn get_viewer_items(
         let date_taken = row.get::<String, _>("date");
         let location_resolved: Option<String> = row.try_get("location_resolved").ok().flatten();
         let location_raw: Option<String> = row.try_get("location").ok().flatten();
+        let relative_media_path: Option<String> = row.try_get("relative_path").ok().flatten();
+        let relative_thumbnail_path: Option<String> =
+            row.try_get("thumbnail_path").ok().flatten();
         let normalized_raw_location = location_raw
             .as_deref()
             .and_then(crate::core::geocoder::normalize_location_text);
-        let derived_location_resolved = location_resolved.clone().or_else(|| {
-            location_raw
-                .as_deref()
-                .and_then(crate::core::geocoder::resolve_location)
-        });
-
-        if location_resolved.is_none() {
-            match (location_raw.as_deref(), derived_location_resolved.as_ref()) {
-                (Some(raw), Some(resolved)) => {
-                    eprintln!(
-                        "[viewer-debug] self-healed location for memory_item_id={} raw='{}' resolved='{}'",
-                        memory_item_id,
-                        raw,
-                        resolved
-                    );
-                    resolved_location_updates.push((memory_item_id, resolved.clone()));
-                }
-                (Some(raw), None) => {
-                    eprintln!(
-                        "[viewer-debug] location unresolved for memory_item_id={} raw='{}'",
-                        memory_item_id, raw
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        let location = derived_location_resolved
+        let location = location_resolved
             .clone()
             .or_else(|| normalized_raw_location.clone());
         let raw_location =
             normalized_raw_location.filter(|raw| location.as_deref() != Some(raw.as_str()));
 
-        let thumbnail_path = thumbnails_dir.join(format!("{memory_item_id}.webp"));
+        let thumbnail_path = relative_thumbnail_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| output_dir.join(path))
+            .unwrap_or_else(|| thumbnails_dir.join(format!("{memory_item_id}.webp")));
         if !thumbnail_path.exists() {
             continue;
         }
 
-        let media_path =
-            match find_output_file_for_memory_item_recursive(&output_dir, memory_item_id) {
+        let media_path = match relative_media_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| output_dir.join(path))
+            .filter(|path| path.exists())
+        {
+            Some(path) => path,
+            None => match find_output_file_for_memory_item_recursive(&output_dir, memory_item_id) {
                 Ok(Some(path)) => path,
                 Ok(None) => continue,
                 Err(error) => {
@@ -1730,7 +1723,8 @@ async fn get_viewer_items(
                     );
                     continue;
                 }
-            };
+            },
+        };
 
         let Some(media_kind) = viewer_media_kind_from_path(&media_path) else {
             continue;
@@ -1740,42 +1734,39 @@ async fn get_viewer_items(
             .and_then(|value| value.to_str())
             .map(|value| value.to_ascii_uppercase());
 
-        let resolved_thumbnail_path =
-            std::fs::canonicalize(&thumbnail_path).unwrap_or(thumbnail_path);
-        let resolved_media_path = std::fs::canonicalize(&media_path).unwrap_or(media_path);
-
         items.push(ViewerItem {
             memory_item_id,
             date_taken,
             location,
             raw_location,
-            thumbnail_path: resolved_thumbnail_path.to_string_lossy().to_string(),
-            media_path: resolved_media_path.to_string_lossy().to_string(),
+            thumbnail_path: thumbnail_path.to_string_lossy().to_string(),
+            media_path: media_path.to_string_lossy().to_string(),
             media_kind,
             media_format,
         });
     }
 
-    for (memory_item_id, resolved_location) in resolved_location_updates {
-        if let Err(error) = sqlx::query(
-            "UPDATE MemoryItem SET location_resolved = ?1 WHERE id = ?2 AND location_resolved IS NULL",
-        )
-        .bind(&resolved_location)
-        .bind(memory_item_id)
-        .execute(&pool)
-        .await
-        {
-            eprintln!(
-                "[viewer-debug] failed to persist self-healed location for memory_item_id {}: {}",
-                memory_item_id,
-                error
-            );
-        }
-    }
-
     pool.close().await;
 
     Ok(items)
+}
+
+#[tauri::command]
+async fn has_viewer_items(app: tauri::AppHandle) -> Result<bool, String> {
+    let database_url = memories_db_url(&app)?;
+    let pool = sqlx::SqlitePool::connect(&database_url)
+        .await
+        .map_err(|error| format!("failed to connect to memories database: {error}"))?;
+
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM MemoryItem WHERE status = 'processed' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|error| format!("failed to query processed memories count: {error}"))?;
+
+    pool.close().await;
+    Ok(count > 0)
 }
 
 #[tauri::command]
@@ -3948,6 +3939,7 @@ pub fn run() {
             process_downloaded_memories,
             get_thumbnails,
             get_viewer_items,
+            has_viewer_items,
             get_media_storage_path,
             open_media_folder,
             create_settings_media_backup_zip,

@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Download, FolderOpen, ImageIcon, CircleHelp } from "lucide-react";
 import { toast } from "sonner";
@@ -55,6 +55,8 @@ type TimelineThumbnailItem = {
   mediaIndex: number;
 };
 
+const VIEWER_PAGE_SIZE = 200;
+
 export function ViewerPlaceholder() {
   const { t, resolvedLocale } = useI18n();
   const [items, setItems] = useState<GridItem[]>([]);
@@ -71,14 +73,32 @@ export function ViewerPlaceholder() {
   const [isExporting, setIsExporting] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const isLoadingPageRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const nextOffsetRef = useRef(0);
   const viewerGuide = getGuideById("viewer-usage") ?? null;
 
   const filterMeta = useMemo(() => extractFilterMeta(items), [items]);
   const filteredItems = useMemo(() => applyViewerFilters(items, filterState), [items, filterState]);
 
-  const loadViewerItems = useCallback(async () => {
+  const loadViewerItems = useCallback(async (reset: boolean) => {
+    if (isLoadingPageRef.current) {
+      return;
+    }
+
+    if (!reset && !hasMoreRef.current) {
+      return;
+    }
+
+    isLoadingPageRef.current = true;
+    setIsLoadingPage(true);
+
+    const offset = reset ? 0 : nextOffsetRef.current;
+
     try {
-      const viewerRows = await getViewerItems(0, 5000);
+      const viewerRows = await getViewerItems(offset, VIEWER_PAGE_SIZE);
       const mappedItems = viewerRows.map((row) => ({
         id: String(row.memoryItemId),
         thumbnailSrc: convertFileSrc(row.thumbnailPath, "asset"),
@@ -90,20 +110,53 @@ export function ViewerPlaceholder() {
         rawLocation: row.rawLocation ?? undefined,
       }));
 
-      setItems(mappedItems);
+      const pageHasMore = viewerRows.length === VIEWER_PAGE_SIZE;
+      hasMoreRef.current = pageHasMore;
+      setHasMore(pageHasMore);
+      nextOffsetRef.current = offset + viewerRows.length;
+
+      let nextCount = 0;
+      setItems((previous) => {
+        if (reset) {
+          nextCount = mappedItems.length;
+          return mappedItems;
+        }
+
+        const knownIds = new Set(previous.map((item) => item.id));
+        const appended = mappedItems.filter((item) => !knownIds.has(item.id));
+        const merged = [...previous, ...appended];
+        nextCount = merged.length;
+        return merged;
+      });
+
       setStatus(
-        mappedItems.length > 0
-          ? t("viewer.status.loaded", { count: mappedItems.length })
+        nextCount > 0
+          ? t("viewer.status.loaded", { count: nextCount })
           : t("viewer.status.empty"),
       );
     } catch {
       setStatus(t("viewer.status.loadFailed"));
+    } finally {
+      isLoadingPageRef.current = false;
+      setIsLoadingPage(false);
     }
   }, [t]);
 
   useEffect(() => {
-    void loadViewerItems();
+    hasMoreRef.current = true;
+    nextOffsetRef.current = 0;
+    setHasMore(true);
+    setStatus(t("viewer.status.loading"));
+    void loadViewerItems(true);
   }, [loadViewerItems]);
+
+  const onNearEnd = useCallback(() => {
+    if (isLoadingPageRef.current || !hasMore || !hasMoreRef.current) {
+      return;
+    }
+
+    void loadViewerItems(false);
+  }, [hasMore, loadViewerItems]);
 
   const onExportArchive = async () => {
     if (isExporting) {
@@ -408,7 +461,7 @@ export function ViewerPlaceholder() {
 
       {/* Grid or Empty State */}
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        {items.length === 0 && status !== t("viewer.status.loading") ? (
+        {items.length === 0 && !isLoadingPage && status !== t("viewer.status.loading") ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed border-muted-foreground/25 py-16">
             <div className="rounded-full bg-muted/50 p-4">
               <ImageIcon className="h-10 w-10 text-muted-foreground/50" />
@@ -423,7 +476,7 @@ export function ViewerPlaceholder() {
             </div>
           </div>
         ) : (
-          <Grid rows={gridRows} onItemSelect={openModalAt} />
+          <Grid rows={gridRows} onItemSelect={openModalAt} onNearEnd={onNearEnd} />
         )}
       </div>
 
